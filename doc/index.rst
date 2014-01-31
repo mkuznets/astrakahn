@@ -16,6 +16,6 @@ Contents:
 Indices and tables
 ==================
 
-.. automodule:: runtime
+.. automodule:: msg_types
     :members:
     :undoc-members:
