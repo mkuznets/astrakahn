@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
 
+
+class TypeError(Exception):
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return self.value
+
+
 def cast_message(data_type, data):
     """
     Casts the content of an AstraKahn message to the given type.  If the
@@ -20,37 +29,36 @@ def cast_message(data_type, data):
 
     Returns:
         The result of matching i.e. either the original data unaltered or
-        fitted accoring to the type.
+        fitted according to the type.
     """
 
     is_primitive = lambda m: (m == int or m == float)
-    is_compound = lambda m: (type(m) == list
-                             or type(m) == tuple
-                             or type(m) == dict)
     get_type = lambda m: m if is_primitive(m) else type(m)
 
     # Primitive types are passed as is (provided that the type is correct)
     if is_primitive(data_type):
-        assert isinstance(data, data_type), \
-            "Type of the message doesn't match"
+        if not isinstance(data, data_type):
+            raise TypeError("Type of the message doesn't match")
         return data
 
     # Check compound types for correspondence.
-    assert type(data) == type(data_type), \
-        "Type of the message doesn't match"
+    if type(data) != type(data_type):
+        raise TypeError("Type of the message doesn't match")
 
     # Tuple
     if type(data_type) == tuple:
-        assert len(data_type) == len(data), \
-            "Lenght of the tuple doesn't match"
+        if len(data_type) != len(data):
+            raise TypeError("Lenght of the tuple doesn't match")
 
         for i in range(len(data_type)):
             if not is_primitive(data_type[i]):
                 data = data[:i] \
-                        + (cast_message(data_type[i], data[i]),) \
-                        + data[i+1:]
-            assert isinstance(data[i], get_type(data_type[i])), \
-                "Type of the elements doesn't match"
+                    + (cast_message(data_type[i], data[i]),) \
+                    + data[i+1:]
+
+            if not isinstance(data[i], get_type(data_type[i])):
+                raise TypeError("Type of the elements doesn't match")
+
         return data
 
     # List
@@ -74,8 +82,9 @@ def cast_message(data_type, data):
             for i in range(len(data_type)):
                 if not is_primitive(data_type[i]):
                     data[i] = cast_message(data_type[i], data[i])
-                assert isinstance(data[i], get_type(data_type[i])), \
-                    "Type of the elements doesn't match"
+
+                if not isinstance(data[i], get_type(data_type[i])):
+                    raise TypeError("Type of the elements doesn't match")
 
             # Add corresponding part of the input list
             out_list = data[:len(data_type)] + out_list
@@ -87,11 +96,13 @@ def cast_message(data_type, data):
             for i in range(len(data_type)):
                 if not is_primitive(data_type[i]):
                     data[i] = cast_message(data_type[i], data[i])
-                assert isinstance(data[i], get_type(data_type[i])), \
-                    "Type of the elements doesn't match"
+
+                if not isinstance(data[i], get_type(data_type[i])):
+                    raise TypeError("Type of the elements doesn't match")
+
             return data
 
-        assert False, "Input list can't be shorter than required list-term"
+        raise TypeError("Input list can't be shorter than required list-term")
 
     # Record
     elif type(data_type) == dict:
@@ -102,8 +113,9 @@ def cast_message(data_type, data):
         for l in common_labels:
             if not is_primitive(data_type[l]):
                 data[l] = cast_message(data_type[l], data[l])
-            assert isinstance(data[l], get_type(data_type[l])), \
-                "Type of the elements doesn't match"
+
+            if not isinstance(data[l], get_type(data_type[l])):
+                raise TypeError("Type of the elements doesn't match")
 
         out_dict = {l: data[l] for l in common_labels}
 

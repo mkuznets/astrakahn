@@ -5,7 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
 
 from random import random, randint, shuffle
-from typesystem import cast_message
+from typesystem import cast_message, TypeError
 import unittest
 
 
@@ -26,11 +26,11 @@ class TestTypeSystem(unittest.TestCase):
         self.assertEqual(out_int, rint)
 
         # Wring type of message
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(float, rint)
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(int, rfloat)
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(float, [rfloat])
 
     def test_typle(self):
@@ -69,25 +69,25 @@ class TestTypeSystem(unittest.TestCase):
                          rfloat_tuple)
 
         # elementary type instead of compound one
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message((int, float), gen_rint())
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message((int, float), gen_rint())
 
         # int failures
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(rint_tuple_pass_fail_1, rint_tuple)
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(rint_tuple_pass_fail_2, rint_tuple)
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(rint_tuple_pass_fail_3, rint_tuple)
 
         # float failures
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(rfloat_tuple_pass_fail_1, rfloat_tuple)
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(rfloat_tuple_pass_fail_2, rfloat_tuple)
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(rfloat_tuple_pass_fail_3, rfloat_tuple)
 
     def test_list(self):
@@ -139,21 +139,21 @@ class TestTypeSystem(unittest.TestCase):
                          rfloat_list[:-5] + [rfloat_list[-5:]])
 
         # elementary type instead of compound one
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message([int, float], gen_rint())
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message([int, float], gen_rint())
 
         # int failures
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(rint_list_pass_fail_1, rint_list)
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(rint_list_pass_fail_2, rint_list)
 
         # float failures
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(rfloat_list_pass_fail_1, rfloat_list)
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             cast_message(rfloat_list_pass_fail_2, rfloat_list)
 
 
