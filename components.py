@@ -28,7 +28,10 @@ class Vertex:
         self.output_channels = {i: None for i in range(inputs[0])}
 
         # PID of the master process. It is used to kill the whole network
-        self.master_pid = os.getpid()
+        self.master_Pid = os.getpid()
+
+        # TODO
+        self.name = ""
 
     def set_input(self, id, queue):
         """
@@ -143,8 +146,9 @@ class Box(Vertex):
 
         if not msg.is_segmark():
             try:
-                msg.content = types.cast_message(self.function.passport[0],
-                                                 msg.content)
+                input_passport = self.function.passport['input'][channel_index]
+
+                msg.content = types.cast_message(input_passport, msg.content)
 
             # Inconsistency in types of messages
             except types.TypeError as err:
@@ -180,6 +184,10 @@ class Transductor(Box):
             if not msg.is_segmark():
                 # Evaluate the core function in the input data
                 output_data = self.function.run(msg.content)
+
+                # If function returns None, output is considered to be empty
+                if output_data == None:
+                    continue
 
                 for (ch, data) in output_data.items():
                     out_msg = comm.DataMessage(data)
@@ -231,6 +239,10 @@ class Inductor(Box):
 
                 # Evaluate the core function in the input data
                 output_data = self.function.run(msg.content)
+
+                # If function returns None, output is considered to be empty
+                if output_data == None:
+                    continue
 
                 # Send the result (except for `continuation' to outputs
                 for (channel_id, data) in output_data.items():

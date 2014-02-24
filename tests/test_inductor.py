@@ -6,8 +6,10 @@ import helpers
 from copy import copy
 from time import sleep
 
-passport_f = ({'sum': int, 'mul': float}, {'sum': int, 'mul': float})
-passport_f_ind = ({'n': int, 'num': float, 'i': int}, {'n': int, 'num': float, 'i': int})
+passport_f = {
+    'input':  ({'sum': int, 'mul': float}),
+    'output': ({'sum': int, 'mul': float})
+}
 
 
 def f(input):
@@ -15,8 +17,6 @@ def f(input):
 
     input_values['sum'] += input_values['sum']
     input_values['mul'] *= 3
-
-    sleep(1)
 
     return {0: input_values}
 

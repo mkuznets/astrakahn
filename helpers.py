@@ -5,36 +5,51 @@ import communication as comm
 from time import sleep
 from random import random
 import sys
+import os
+import itertools
 
 
-def emit_agent(agent_type, channel):
+def emit_agent(agent_type, channel, msg_generator=None, limit=None, delay=0):
 
-    if agent_type == 'producer':
-        f = main_producer_function
-    elif agent_type == 'consumer':
-        f = main_consumer_function
-    else:
-        assert(False)
+    counter = itertools.count() if not limit else range(limit)
 
-    agent_process = Process(target=f, args=(channel,))
+    if not (isinstance(delay, int) or isinstance(delay, float)) or delay < 0:
+        delay = 0
+
+    agent_process = Process(target=agent, args=(agent_type, channel,
+                                                msg_generator, counter,
+                                                delay,))
     agent_process.start()
 
-
-def main_consumer_function(channel):
-    while True:
-        msg = channel.get()
-        print("Get, pressure = "
-              + str(channel.pressure())
-              + " --- "
-              + str(msg.content))
-        #sleep(5 * random())
+    return agent_process
 
 
-def main_producer_function(channel):
-    for i in range(1000):
-        channel.ready.wait()
+def agent(agent_type, channel, msg_generator, counter, delay):
 
-        channel.put(comm.DataMessage({'n': i, 'num': float(i), 'i': 0}))
-        print("Msg: " + str(i)
-              + ", pressure = " + str(channel.pressure()))
-        sleep(0.5)
+    print(agent_type, os.getpid())
+
+    if agent_type == 'producer':
+        assert(msg_generator != None)
+        gen_instance = msg_generator()
+
+        for i in counter:
+            channel.ready.wait()
+            message = next(gen_instance)
+            channel.put(message)
+
+            print(message, "P =", channel.pressure())
+
+            # Configurable delay
+            sleep(delay)
+
+    elif agent_type == 'consumer':
+        for i in counter:
+            message = channel.get()
+
+            print("\t\t\t\t\t", message, "P =", channel.pressure())
+
+            # Configurable delay
+            sleep(delay)
+
+    else:
+        assert(False)

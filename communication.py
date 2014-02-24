@@ -101,10 +101,12 @@ class SegmentationMark(Message):
     def __init__(self, n):
         # Number of opening and closing brakets.
         self.n = n
-        self.content = (")" * self.n) + ("(" * self.n)
 
     def is_segmark(self):
         return True
+
+    def __str__(self):
+        return (")" * self.n) + ("(" * self.n)
 
 
 class DataMessage(Message):
@@ -115,3 +117,6 @@ class DataMessage(Message):
     def __init__(self, content):
         # TODO: not sure at the moment about the type of content.
         self.content = content
+
+    def __str__(self):
+        return str(self.content)
