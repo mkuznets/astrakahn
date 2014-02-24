@@ -7,6 +7,7 @@ from copy import copy
 from time import sleep
 
 passport_f = ({'sum': int, 'mul': float}, {'sum': int, 'mul': float})
+passport_f_ind = ({'n': int, 'num': float, 'i': int}, {'n': int, 'num': float, 'i': int})
 
 
 def f(input):
@@ -17,30 +18,47 @@ def f(input):
 
     sleep(1)
 
-    return input_values
+    return {0: input_values}
 
+
+def f_ind(input):
+    input_values = copy(input)
+    result = {}
+
+    input_values['num'] = 5 * input_values['num'] + 10
+    input_values['i'] += 1
+
+    #sleep(1)
+
+    result[0] = input_values
+    if input_values['i'] < 5:
+        result['continuation'] = input_values
+
+    return result
 
 try:  # Create transductors
     box_f = components.BoxFunction(f, passport_f)
+    box_f_ind = components.BoxFunction(f_ind, passport_f_ind)
 
     a = components.Transductor(inputs=(1, {0: 'a'}), outputs=(1, {0: 'a'}),
-                               box_function=box_f, parameters={'pid': os.getpid()})
+                               box_function=box_f)
     b = components.Transductor(inputs=(1, {0: 'a'}), outputs=(1, {0: 'a'}),
-                               box_function=box_f, parameters={'pid': os.getpid()})
+                               box_function=box_f)
 
-    a.wire(0, b, 0)
-    #b.wire(0, a, 0)
+    c = components.Inductor(inputs=(1, {0: 'a'}), outputs=(1, {0: 'a'}),
+                            box_function=box_f_ind)
 
-    a.start()
-    #b.start()
+    #a.wire(0, b, 0)
 
-    helpers.emit_agent('producer', a.input_channels[0])
-    helpers.emit_agent('consumer', a.output_channels[0])
+    c.start()
 
-    a.thread.join()
+    helpers.emit_agent('producer', c.input_channels[0])
+    helpers.emit_agent('consumer', c.output_channels[0])
+
+    c.thread.join()
     print("that's it")
     #b.thread.join()
 
 except KeyboardInterrupt:
-    a.stop()
+    c.stop()
     #b.stop()

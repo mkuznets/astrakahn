@@ -4,6 +4,8 @@ from multiprocessing import Process
 import communication as comm
 from time import sleep
 from random import random
+import sys
+
 
 def emit_agent(agent_type, channel):
 
@@ -17,16 +19,22 @@ def emit_agent(agent_type, channel):
     agent_process = Process(target=f, args=(channel,))
     agent_process.start()
 
+
 def main_consumer_function(channel):
     while True:
-        channel.get()
-        print("Get, pressure = " + str(channel.pressure()))
-        sleep(5 * random())
+        msg = channel.get()
+        print("Get, pressure = "
+              + str(channel.pressure())
+              + " --- "
+              + str(msg.content))
+        #sleep(5 * random())
 
 
 def main_producer_function(channel):
     for i in range(1000):
-        channel.put(comm.DataMessage({'sum': i, 'mul': float(i)}))
+        channel.ready.wait()
+
+        channel.put(comm.DataMessage({'n': i, 'num': float(i), 'i': 0}))
         print("Msg: " + str(i)
               + ", pressure = " + str(channel.pressure()))
         sleep(0.5)

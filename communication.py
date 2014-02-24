@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from multiprocessing import Queue, Event
+from multiprocessing import Queue, Event, Value
 
 
 class Channel:
@@ -21,6 +21,11 @@ class Channel:
         self.depth = depth
         self.critical_pressure = 10
 
+        # Separate counters can be used instead of queue size of the latter
+        # turns to be unstable.
+        #self.n_put = Value('i', 0)
+        #self.n_get = Value('i', 0)
+
     def get(self):
         """
         Get a message from the channel
@@ -29,21 +34,27 @@ class Channel:
         if not self.is_critical():
             self.ready.set()
 
-        return self.queue.get()
+        msg = self.queue.get()
+        #self.n_get.value += 1
+
+        return msg
 
     def put(self, msg):
         """
         Put a message to the channel
         """
 
-        self.ready.wait()
+        #self.ready.wait()
 
-        if not self.is_critical():
-            self.ready.set()
-        else:
+        if self.is_critical():
             self.ready.clear()
+        else:
+            self.ready.set()
 
-        return self.queue.put(msg)
+        self.queue.put(msg)
+        #self.n_put.value += 1
+
+        return
 
     def pressure(self):
         """
@@ -56,6 +67,7 @@ class Channel:
         """
 
         queue_size = self.queue.qsize()
+        #queue_size = self.n_put.value - self.n_get.value
         return queue_size if queue_size > 0 else 0
 
     def is_critical(self):
@@ -89,6 +101,7 @@ class SegmentationMark(Message):
     def __init__(self, n):
         # Number of opening and closing brakets.
         self.n = n
+        self.content = (")" * self.n) + ("(" * self.n)
 
     def is_segmark(self):
         return True
