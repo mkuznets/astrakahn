@@ -28,7 +28,7 @@ class Vertex:
         self.output_channels = {i: None for i in range(inputs[0])}
 
         # PID of the master process. It is used to kill the whole network
-        self.master_Pid = os.getpid()
+        self.master_pid = os.getpid()
 
         # TODO
         self.name = ""
@@ -181,12 +181,20 @@ class Transductor(Box):
         while True:
             msg = self.read_message(0)
 
+            # TODO: this code must be included to read_message() since it's
+            # the same for all types of boxes.
+            if msg.end_of_stream():
+                print("stopped")
+                for (channel_id, out_channel) in self.output_channels.items():
+                    out_channel.put(msg)
+                return
+
             if not msg.is_segmark():
                 # Evaluate the core function in the input data
                 output_data = self.function.run(msg.content)
 
                 # If function returns None, output is considered to be empty
-                if output_data == None:
+                if output_data is None:
                     continue
 
                 for (ch, data) in output_data.items():
@@ -194,7 +202,7 @@ class Transductor(Box):
                     self.output_channels[ch].put(out_msg)
             else:
                 # Segmentation marks are transferred as is through transductor
-                for out_channel in self.output_channels:
+                for (channel_id, out_channel) in self.output_channels.items():
                     out_channel.put(msg)
 
 
@@ -241,7 +249,7 @@ class Inductor(Box):
                 output_data = self.function.run(msg.content)
 
                 # If function returns None, output is considered to be empty
-                if output_data == None:
+                if output_data is None:
                     continue
 
                 # Send the result (except for `continuation' to outputs
@@ -251,8 +259,8 @@ class Inductor(Box):
                         self.output_channels[channel_id].put(out_msg)
 
                 if 'continuation' not in output_data:
-                    # Absence of `continuation' in the result means that it's the
-                    # last element of sequence.
+                    # Absence of `continuation' in the result means that it's
+                    # the last element of sequence.
                     continuation = None
                     first_segmark = False
                     continue

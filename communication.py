@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from multiprocessing import Queue, Event, Value
+from multiprocessing import Queue, Event
 
 
 class Channel:
@@ -79,6 +79,9 @@ class Message:
     Superclass of all types of messages
     """
 
+    def end_of_stream(self):
+        return False
+
     def is_segmark(self):
         """
         The message is considered to be a data message by default rather than
@@ -101,9 +104,13 @@ class SegmentationMark(Message):
     def __init__(self, n):
         # Number of opening and closing brakets.
         self.n = n
+        self.content =  (")" * self.n) + ("(" * self.n)
 
     def is_segmark(self):
         return True
+
+    def end_of_stream(self):
+        return True if (self.n == 0) else False
 
     def __str__(self):
         return (")" * self.n) + ("(" * self.n)

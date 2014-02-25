@@ -1,35 +1,34 @@
 #!/usr/bin/env python3
 
 from multiprocessing import Process
-import communication as comm
 from time import sleep
-from random import random
-import sys
 import os
 import itertools
+import communication as comm
 
 
-def emit_agent(agent_type, channel, msg_generator=None, limit=None, delay=0):
+def emit_agent(agent_type, channel, msg_generator=None, limit=None, delay=0,
+               data=None):
 
     counter = itertools.count() if not limit else range(limit)
 
-    if not (isinstance(delay, int) or isinstance(delay, float)) or delay < 0:
+    if delay < 0:
         delay = 0
 
     agent_process = Process(target=agent, args=(agent_type, channel,
                                                 msg_generator, counter,
-                                                delay,))
+                                                delay, data,))
     agent_process.start()
 
     return agent_process
 
 
-def agent(agent_type, channel, msg_generator, counter, delay):
+def agent(agent_type, channel, msg_generator, counter, delay, data):
 
     print(agent_type, os.getpid())
 
     if agent_type == 'producer':
-        assert(msg_generator != None)
+        assert(msg_generator is not None)
         gen_instance = msg_generator()
 
         for i in counter:
@@ -39,12 +38,23 @@ def agent(agent_type, channel, msg_generator, counter, delay):
 
             print(message, "P =", channel.pressure())
 
-            # Configurable delay
+            # Configurable delaY
             sleep(delay)
 
+        # Send end of scream mark
+        channel.put(comm.SegmentationMark(0))
+
     elif agent_type == 'consumer':
+        assert(data is not None)
+
+        ind = 0
         for i in counter:
             message = channel.get()
+            data.put(message)
+
+            if message.end_of_stream():
+                print("End of stream: stopping")
+                return
 
             print("\t\t\t\t\t", message, "P =", channel.pressure())
 
