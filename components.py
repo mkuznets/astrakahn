@@ -27,7 +27,7 @@ class Vertex:
         self.input_channels = {i: None for i in range(inputs[0])}
         self.output_channels = {i: None for i in range(inputs[0])}
 
-        # PID of the master process. It is used to kill the whole network
+        # PID of the master process. It is used for killing the whole network.
         self.master_pid = os.getpid()
 
         # TODO
@@ -181,14 +181,6 @@ class Transductor(Box):
         while True:
             msg = self.read_message(0)
 
-            # TODO: this code must be included to read_message() since it's
-            # the same for all types of boxes.
-            if msg.end_of_stream():
-                print("stopped")
-                for (channel_id, out_channel) in self.output_channels.items():
-                    out_channel.put(msg)
-                return
-
             if not msg.is_segmark():
                 # Evaluate the core function in the input data
                 output_data = self.function.run(msg.content)
@@ -204,6 +196,9 @@ class Transductor(Box):
                 # Segmentation marks are transferred as is through transductor
                 for (channel_id, out_channel) in self.output_channels.items():
                     out_channel.put(msg)
+
+                if msg.end_of_stream():
+                    return
 
 
 class Inductor(Box):
@@ -228,9 +223,7 @@ class Inductor(Box):
     def protocol(self):
         msg = None
         continuation = None
-
-        # Flip-flow to put segmarks only between consecutive messages
-        first_segmark = False
+        consecutive_msg = False
 
         # Protocol loop
         while True:
@@ -239,11 +232,12 @@ class Inductor(Box):
 
             if not msg.is_segmark():
 
-                # Put a segmentation mark between consecutive messages
-                if first_segmark:
+                if consecutive_msg and not continuation:
+                    # Put a segmentation mark between consecutive messages
                     for (id, out_channel) in self.output_channels.items():
                         out_channel.put(comm.SegmentationMark(1))
-                first_segmark = True
+
+                consecutive_msg = True
 
                 # Evaluate the core function in the input data
                 output_data = self.function.run(msg.content)
@@ -262,17 +256,29 @@ class Inductor(Box):
                     # Absence of `continuation' in the result means that it's
                     # the last element of sequence.
                     continuation = None
-                    first_segmark = False
+
                     continue
                 else:
                     # Assign `continuation' to be read in the next step.
                     continuation = output_data['continuation']
+                    continue
 
             else:
-                # Segmentation marks are transferred through inductor with
-                # incremented depth.
+                consecutive_msg = False
+
+                # Choose a proper segmark
+                if msg.n > 0:
+                    # Segmentation marks are transferred through inductor with
+                    # incremented depth.
+                    segmark = comm.SegmentationMark(msg.n + 1)
+                elif msg.n == 0:
+                    segmark = comm.SegmentationMark(0)
+
                 for (id, out_channel) in self.output_channels.items():
-                    out_channel.put(comm.SegmentationMark(msg.n + 1))
+                    out_channel.put(segmark)
+
+                if msg.end_of_stream():
+                    return
 
 
 class Reductor(Box):

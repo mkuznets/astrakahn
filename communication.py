@@ -113,7 +113,10 @@ class SegmentationMark(Message):
         return True if (self.n == 0) else False
 
     def __str__(self):
-        return (")" * self.n) + ("(" * self.n)
+        if self.n > 0:
+            return (")" * self.n) + ("(" * self.n)
+        else:
+            return "\sigma_0"
 
 
 class DataMessage(Message):
@@ -126,4 +129,4 @@ class DataMessage(Message):
         self.content = content
 
     def __str__(self):
-        return str(self.content)
+        return "DataMessage(" + str(self.content) + ")"
