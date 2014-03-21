@@ -104,7 +104,7 @@ class SegmentationMark(Message):
     def __init__(self, n):
         # Number of opening and closing brakets.
         self.n = n
-        self.content =  (")" * self.n) + ("(" * self.n)
+        self.content = self.__repr__()
 
     def is_segmark(self):
         return True
@@ -112,11 +112,14 @@ class SegmentationMark(Message):
     def end_of_stream(self):
         return True if (self.n == 0) else False
 
-    def __str__(self):
+    def __repr__(self):
         if self.n > 0:
             return (")" * self.n) + ("(" * self.n)
         else:
-            return "\sigma_0"
+            return "sigma_0"
+
+    def __str__(self):
+        return self.__repr__()
 
 
 class DataMessage(Message):
@@ -128,5 +131,8 @@ class DataMessage(Message):
         # TODO: not sure at the moment about the type of content.
         self.content = content
 
+    def __repr__(self):
+        return "msg(" + str(self.content) + ")"
+
     def __str__(self):
-        return "DataMessage(" + str(self.content) + ")"
+        return self.__repr__()

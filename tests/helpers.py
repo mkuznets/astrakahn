@@ -78,7 +78,7 @@ class Consumer(Agent):
             sleep(self.delay)
 
 
-def run_box(box_type, function, passport, input_list):
+def run_box(box_type, function, passport, test_input):
 
     if not (box_type == components.Transductor
             or box_type == components.Inductor
@@ -93,15 +93,21 @@ def run_box(box_type, function, passport, input_list):
                        {i: '' for i in range(len(passport['output']))})
 
         # Create a box
-        box = box_type(inputs=(1, {0: 'a'}), outputs=(1, {0: 'a'}),
+        box = box_type(inputs=box_inputs, outputs=box_outputs,
                        box_function=components.BoxFunction(function, passport))
         box.start()
 
-        producer = Producer(box.input_channels[0], iter(input_list))
-        producer.run()
+        # If test_input contains only one sequence, it will be sent to the
+        # first input channel
+        if type(test_input) == list:
+            test_input = {0: test_input}
+
+
+        for (channel_id, sequence) in test_input.items():
+            producer = Producer(box.input_channels[channel_id], iter(sequence))
+            producer.run()
 
         main_output = Queue()
-
         consumer = Consumer(box.output_channels[0], main_output)
         consumer.run()
 
@@ -109,9 +115,10 @@ def run_box(box_type, function, passport, input_list):
         result = []
         while True:
             msg = main_output.get()
+            result += [msg.content]
+
             if msg.end_of_stream():
                 break
-            result += [msg.content]
 
         box.thread.join()
         producer.thread.join()
@@ -128,7 +135,7 @@ def run_box(box_type, function, passport, input_list):
 
 class Testable:
 
-    def test(self):
+    def test(self, view=False, verbose=False):
         box_name = self.__class__.__name__
         print(box_name + ": ", end="")
 
@@ -136,10 +143,21 @@ class Testable:
             result = run_box(self.type, self.function, self.passport,
                              self.test_input)
 
+            if verbose:
+                print("\n" + "Result:   ", str(result), "\n" +
+                             "Expected: ", str(self.reference_output))
+
+            if view:
+                print('')
+                return
+
             if result == self.reference_output:
                 print("Test passed")
             else:
                 print("Test FAILED")
+
+            if verbose:
+                print('')
 
         except AttributeError as e:
             print("Testing attributes must be provided: " + str(e))

@@ -9,7 +9,7 @@ import math
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
 
 from communication import SegmentationMark
-from components import Transductor, Inductor
+from components import Transductor, Inductor, Reductor
 from helpers import Testable
 
 
@@ -29,7 +29,8 @@ class PrimeTransductor(Testable):
             + list(range(75, 100))
 
         self.reference_output = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37,
-                                 41, 43, 47, '))((', 53, 59, 61, 67, 71, 73]
+                                 41, 43, 47, '))((', 53, 59, 61, 67, 71, 73,
+                                 'sigma_0']
 
     def function(self, input):
 
@@ -63,7 +64,7 @@ class PrimeInductor(Testable):
                            {'low': 321, 'n_primes': 40}]
 
         self.reference_output = [211, 223, 227, ')))(((', 1009, 1013, 1019,
-                                 ')(', 331, 337, 347]
+                                 ')(', 331, 337, 347, 'sigma_0']
 
         self.passport = {
             'input':  ({'low': int, 'n_primes': int},),
@@ -100,3 +101,33 @@ class PrimeInductor(Testable):
         continuation['n_primes'] -= 1
 
         return {0: n, 'continuation': continuation}
+
+
+class SomeReductor(Testable):
+
+    def __init__(self):
+
+        self.type = Reductor
+
+        self.passport = {
+            'input':  (int, int,),
+            'output': (int,)
+        }
+
+        self.test_input = \
+            {0: [2, 1, SegmentationMark(1), 2, SegmentationMark(0)],
+             1: [0, 1, 0, SegmentationMark(2), 1, 1, 1, SegmentationMark(1),
+                 0, 0, 1, SegmentationMark(0)]
+             }
+
+        self.reference_output = \
+            [3, ')(', 0, 3, 'sigma_0']
+
+    def function(self, input_a, input_b):
+
+        a = copy(input_a)
+        b = copy(input_b)
+
+        result = (a + b) % 4
+
+        return {0: result}

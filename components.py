@@ -300,9 +300,18 @@ class Reductor(Box):
 
             # Segmark from the first channel bypassed with incremented depth
             if partial_result.is_segmark():
-                segmark = comm.SegmentationMark(partial_result.n + 1)
+
+                if partial_result.n > 0:
+                    segmark = comm.SegmentationMark(partial_result.n + 1)
+                else:
+                    segmark = comm.SegmentationMark(0)
+
                 for channel_id in range(1, len(self.output_channels)):
                     self.output_channels[channel_id].put(segmark)
+
+                if partial_result.end_of_stream():
+                    return
+
                 continue
 
             # Message from the 2nd channel (second element of reduction or
@@ -327,6 +336,10 @@ class Reductor(Box):
                 # Send the proper segmark
                 if segmark:
                     self.output_channels[0].put(segmark)
+
+                if term.end_of_stream():
+                    return
+
                 continue
 
             while True:
@@ -337,10 +350,12 @@ class Reductor(Box):
                 # Send some intermediate values (that may depends on
                 # computation of partial result) to all outputs except for the
                 # first one.
-                for (ch, data) in output_data.items():
-                    if ch > 0:
+                for (channel_id, data) in output_data.items():
+                    if channel_id > 0:
                         out_msg = comm.DataMessage(data)
-                        self.output_channels[ch].put(out_msg)
+                        self.output_channels[channel_id].put(out_msg)
+
+                partial_result = comm.DataMessage(output_data[0])
 
                 # These calls are blocked if there's no messages in 2nd input
                 # or output channels (except for the 1st one) are blocked.
@@ -355,14 +370,14 @@ class Reductor(Box):
             # Protocol reaches this point only at the end of computations, i.e.
             # iff `term' is a segmark.
             # TODO: such control dependency is TOO implicit. Certainly poor
-            #design decision.
+            # design decision.
 
             # Send complete result out
             self.output_channels[0].put(partial_result)
 
             # Choose proper segmark
             if term.n > 1:
-                segmark = comm.SegmentationMark(partial_result.n - 1)
+                segmark = comm.SegmentationMark(term.n - 1)
             elif term.n == 0:
                 segmark = comm.SegmentationMark(0)
             else:
