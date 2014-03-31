@@ -6,8 +6,6 @@ from multiprocessing import Queue, Event
 class Channel:
     """
     AstraKahn channel
-    TODO: strongly depends on the Queue implementation
-    (that is currently taken from `multiprocessing' module)
     """
 
     def __init__(self, id_channel, name=None, depth=None, queue=None):
@@ -21,11 +19,6 @@ class Channel:
         self.depth = depth
         self.critical_pressure = 10
 
-        # Separate counters can be used instead of queue size of the latter
-        # turns to be unstable.
-        #self.n_put = Value('i', 0)
-        #self.n_get = Value('i', 0)
-
     def get(self):
         """
         Get a message from the channel
@@ -35,7 +28,6 @@ class Channel:
             self.ready.set()
 
         msg = self.queue.get()
-        #self.n_get.value += 1
 
         return msg
 
@@ -44,15 +36,12 @@ class Channel:
         Put a message to the channel
         """
 
-        #self.ready.wait()
-
         if self.is_critical():
             self.ready.clear()
         else:
             self.ready.set()
 
         self.queue.put(msg)
-        #self.n_put.value += 1
 
         return
 
@@ -67,7 +56,6 @@ class Channel:
         """
 
         queue_size = self.queue.qsize()
-        #queue_size = self.n_put.value - self.n_get.value
         return queue_size if queue_size > 0 else 0
 
     def is_critical(self):

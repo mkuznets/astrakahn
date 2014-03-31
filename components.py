@@ -283,11 +283,14 @@ class Inductor(Box):
 
 class Reductor(Box):
     def __init__(self, inputs, outputs, box_function, parameters=None):
-        # Reductor has exactly 2 inputs and one or more outputs
-        assert(inputs[0] == 2 and outputs[0] >= 1)
+        # Reductor has 1 or 2 inputs and one or more outputs
+        assert((inputs[0] == 1 or inputs[0] == 2) and outputs[0] >= 1)
 
         super(Reductor, self).__init__(inputs, outputs, box_function,
                                        parameters)
+
+        self.monadic = True if (inputs[0] == 1) else False
+        self.term_channel = 0 if self.monadic else 1
 
     def protocol(self):
         partial_result = None
@@ -314,9 +317,9 @@ class Reductor(Box):
 
                 continue
 
-            # Message from the 2nd channel (second element of reduction or
-            # first element of list of subsequent terms to reduce)
-            term = self.read_message(1)
+            # Second element of reduction or first element of list of
+            #subsequent terms to reduce
+            term = self.read_message(self.term_channel)
 
             # Segmark from the second channel here means that there's only one
             # term to reduce - from the 1st channel. Send it out with a proper
@@ -359,7 +362,7 @@ class Reductor(Box):
 
                 # These calls are blocked if there's no messages in 2nd input
                 # or output channels (except for the 1st one) are blocked.
-                term = self.read_message(1)
+                term = self.read_message(self.term_channel)
                 self.wait_for_outputs()
 
                 # Segmark here indicates the end of the term list: stops the
@@ -386,6 +389,9 @@ class Reductor(Box):
             # Send the proper segmark
             if segmark:
                 self.output_channels[0].put(segmark)
+
+            if term.end_of_stream():
+                return
 
 
 class BoxFunction:

@@ -131,3 +131,30 @@ class SomeReductor(Testable):
         result = (a + b) % 4
 
         return {0: result}
+
+class MonadicReductor(Testable):
+
+    def __init__(self):
+
+        self.type = Reductor
+
+        self.passport = {
+            'input':  (int,),
+            'output': (int,)
+        }
+
+        self.test_input = [2, 0, 1, 0, SegmentationMark(1),
+                           1, 1, 1, 1, SegmentationMark(1),
+                           2, 0, 0, 1, SegmentationMark(0)]
+
+        self.reference_output = \
+            [3, 0, 3, 'sigma_0']
+
+    def function(self, input_a, input_b):
+
+        a = copy(input_a)
+        b = copy(input_b)
+
+        result = (a + b) % 4
+
+        return {0: result}
