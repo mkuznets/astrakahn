@@ -93,8 +93,7 @@ def run_box(box_type, function, passport, test_input):
                        {i: '' for i in range(len(passport['output']))})
 
         # Create a box
-        box = box_type(inputs=box_inputs, outputs=box_outputs,
-                       box_function=components.BoxFunction(function, passport))
+        box = box_type(box_inputs, box_outputs, function, passport)
         box.start()
 
         # If test_input contains only one sequence, it will be sent to the

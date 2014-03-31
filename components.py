@@ -78,9 +78,10 @@ class Box(Vertex):
     Stateless box: transductor, inductor or reductor.
     """
 
-    def __init__(self, inputs, outputs, box_function, parameters=None):
+    def __init__(self, inputs, outputs, function, passport, parameters=None):
         super(Box, self).__init__(inputs, outputs, parameters)
-        self.function = box_function
+        self.function = function
+        self.passport = passport
 
     def start(self):
         """
@@ -146,7 +147,7 @@ class Box(Vertex):
 
         if not msg.is_segmark():
             try:
-                input_passport = self.function.passport['input'][channel_index]
+                input_passport = self.passport['input'][channel_index]
 
                 msg.content = types.cast_message(input_passport, msg.content)
 
@@ -167,11 +168,11 @@ class Transductor(Box):
         * One input and at least one output
         * Segmentation bypassed unamended to all outputs
     """
-    def __init__(self, inputs, outputs, box_function, parameters=None):
+    def __init__(self, inputs, outputs, function, passport, parameters=None):
         # Transductor has a single input and one or more outputs
         assert(inputs[0] == 1 and outputs[0] >= 1)
 
-        super(Transductor, self).__init__(inputs, outputs, box_function,
+        super(Transductor, self).__init__(inputs, outputs, function, passport,
                                           parameters)
 
     def protocol(self):
@@ -183,7 +184,7 @@ class Transductor(Box):
 
             if not msg.is_segmark():
                 # Evaluate the core function in the input data
-                output_data = self.function.run(msg.content)
+                output_data = self.function(msg.content)
 
                 # If function returns None, output is considered to be empty
                 if output_data is None:
@@ -213,11 +214,11 @@ class Inductor(Box):
           always generated and used in the next iteration, potentially after
           a blockage due to critical pressure in the outputs.
     """
-    def __init__(self, inputs, outputs, box_function, parameters=None):
+    def __init__(self, inputs, outputs, function, passport, parameters=None):
         # Inductor has a single input and one or more outputs
         assert(inputs[0] == 1 and outputs[0] >= 1)
 
-        super(Inductor, self).__init__(inputs, outputs, box_function,
+        super(Inductor, self).__init__(inputs, outputs, function, passport,
                                        parameters)
 
     def protocol(self):
@@ -240,7 +241,7 @@ class Inductor(Box):
                 consecutive_msg = True
 
                 # Evaluate the core function in the input data
-                output_data = self.function.run(msg.content)
+                output_data = self.function(msg.content)
 
                 # If function returns None, output is considered to be empty
                 if output_data is None:
@@ -282,11 +283,11 @@ class Inductor(Box):
 
 
 class Reductor(Box):
-    def __init__(self, inputs, outputs, box_function, parameters=None):
+    def __init__(self, inputs, outputs, function, passport, parameters=None):
         # Reductor has 1 or 2 inputs and one or more outputs
         assert((inputs[0] == 1 or inputs[0] == 2) and outputs[0] >= 1)
 
-        super(Reductor, self).__init__(inputs, outputs, box_function,
+        super(Reductor, self).__init__(inputs, outputs, function, passport,
                                        parameters)
 
         self.monadic = True if (inputs[0] == 1) else False
@@ -347,7 +348,7 @@ class Reductor(Box):
 
             while True:
                 # Partial result computation
-                output_data = self.function.run(partial_result.content,
+                output_data = self.function(partial_result.content,
                                                 term.content)
 
                 # Send some intermediate values (that may depends on
@@ -392,12 +393,3 @@ class Reductor(Box):
 
             if term.end_of_stream():
                 return
-
-
-class BoxFunction:
-    """
-    Combination of a pure box function and its passport.
-    """
-    def __init__(self, function, passport):
-        self.passport = passport
-        self.run = function
