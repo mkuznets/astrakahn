@@ -9,7 +9,7 @@ import math
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
 
 from communication import SegmentationMark
-from components import Transductor, Inductor, Reductor
+from components import Transductor, Inductor, Reductor, Copier
 from helpers import Testable
 
 
@@ -149,6 +149,35 @@ class MonadicReductor(Testable):
 
         self.reference_output = \
             [3, 0, 3, 'sigma_0']
+
+    def function(self, input_a, input_b):
+
+        a = copy(input_a)
+        b = copy(input_b)
+
+        result = (a + b) % 4
+
+        return {0: result}
+
+
+class Merger(Testable):
+
+    def __init__(self):
+
+        self.type = Copier
+
+        self.passport = {
+            'input':  (int, int,),
+            'output': (int,)
+        }
+
+        self.test_input = \
+            {0: [1, 2, 3, 4, SegmentationMark(0), 10],
+             1: [7, 8, 9, 10, 9, SegmentationMark(0)]
+            }
+
+        self.reference_output = \
+            [3, ')(', 0, 3, 'sigma_0']
 
     def function(self, input_a, input_b):
 

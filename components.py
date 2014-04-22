@@ -5,6 +5,7 @@ from multiprocessing import Process, Queue
 import typesystem as types
 import os
 import signal
+import copy
 
 
 class Vertex:
@@ -12,26 +13,13 @@ class Vertex:
     Abstract AstraKahn vertex can be either a box or a syncroniser.
     """
 
-    def __init__(self, inputs, outputs, parameters=None):
+    def __init__(self, n_inputs, n_outputs, parameters=None):
 
-        # Number of channel names mustn't exceed the overall number of channels
-        assert(inputs[0] >= len(inputs[1]) and outputs[0] >= len(outputs[1]))
-
-        # Check for correspondence of indexes
-        assert(len(inputs[1]) == 0 or (0 <= min(inputs[1].keys())
-                                       and max(inputs[1].keys()) < inputs[0]))
-        assert(len(outputs[1]) == 0
-               or (0 <= min(outputs[1].keys())
-                   and max(outputs[1].keys()) < outputs[0]))
-
-        self.input_channels = {i: None for i in range(inputs[0])}
-        self.output_channels = {i: None for i in range(inputs[0])}
+        self.input_channels = {i: None for i in range(n_inputs)}
+        self.output_channels = {i: None for i in range(n_inputs)}
 
         # PID of the master process. It is used for killing the whole network.
         self.master_pid = os.getpid()
-
-        # TODO
-        self.name = ""
 
     def set_input(self, id, queue):
         """
@@ -78,8 +66,8 @@ class Box(Vertex):
     Stateless box: transductor, inductor or reductor.
     """
 
-    def __init__(self, inputs, outputs, function, passport, parameters=None):
-        super(Box, self).__init__(inputs, outputs, parameters)
+    def __init__(self, n_inputs, n_outputs, function, passport, parameters=None):
+        super(Box, self).__init__(n_inputs, n_outputs, parameters)
         self.function = function
         self.passport = passport
 
@@ -168,11 +156,11 @@ class Transductor(Box):
         * One input and at least one output
         * Segmentation bypassed unamended to all outputs
     """
-    def __init__(self, inputs, outputs, function, passport, parameters=None):
+    def __init__(self, n_inputs, n_outputs, function, passport, parameters=None):
         # Transductor has a single input and one or more outputs
-        assert(inputs[0] == 1 and outputs[0] >= 1)
+        assert(n_inputs == 1 and n_outputs >= 1)
 
-        super(Transductor, self).__init__(inputs, outputs, function, passport,
+        super(Transductor, self).__init__(n_inputs, n_outputs, function, passport,
                                           parameters)
 
     def protocol(self):
@@ -214,11 +202,11 @@ class Inductor(Box):
           always generated and used in the next iteration, potentially after
           a blockage due to critical pressure in the outputs.
     """
-    def __init__(self, inputs, outputs, function, passport, parameters=None):
+    def __init__(self, n_inputs, n_outputs, function, passport, parameters=None):
         # Inductor has a single input and one or more outputs
-        assert(inputs[0] == 1 and outputs[0] >= 1)
+        assert(n_inputs == 1 and n_outputs >= 1)
 
-        super(Inductor, self).__init__(inputs, outputs, function, passport,
+        super(Inductor, self).__init__(n_inputs, n_outputs, function, passport,
                                        parameters)
 
     def protocol(self):
@@ -283,14 +271,14 @@ class Inductor(Box):
 
 
 class Reductor(Box):
-    def __init__(self, inputs, outputs, function, passport, parameters=None):
+    def __init__(self, n_inputs, n_outputs, function, passport, parameters=None):
         # Reductor has 1 or 2 inputs and one or more outputs
-        assert((inputs[0] == 1 or inputs[0] == 2) and outputs[0] >= 1)
+        assert((n_inputs == 1 or n_inputs == 2) and n_outputs >= 1)
 
-        super(Reductor, self).__init__(inputs, outputs, function, passport,
+        super(Reductor, self).__init__(n_inputs, n_outputs, function, passport,
                                        parameters)
 
-        self.monadic = True if (inputs[0] == 1) else False
+        self.monadic = True if (n_inputs == 1) else False
         self.term_channel = 0 if self.monadic else 1
 
     def protocol(self):
@@ -393,3 +381,44 @@ class Reductor(Box):
 
             if term.end_of_stream():
                 return
+
+class Copier(Box):
+
+    def __init__(self, n_inputs, n_outputs, function, passport, parameters=None):
+        # Transductor has a single input and one or more outputs
+        assert(n_inputs > 0 and n_outputs > 0)
+
+        super(Copier, self).__init__(n_inputs, n_outputs, function, passport,
+                                          parameters)
+
+    def protocol(self):
+        msg = None
+        input_ids = set(self.input_channels.keys())
+
+        # Protocol loop
+        while True:
+
+            # TODO: make this loop less ugly...
+            input_ids_iter = copy.copy(input_ids)
+
+            for input_id in input_ids_iter:
+
+                if not self.input_channels[input_id].empty():
+                    msg = self.read_message(input_id)
+
+                    if msg.end_of_stream():
+                        # Disable the input channel from which end-of-stream
+                        # was received.
+                        input_ids.remove(input_id)
+
+                        # Don't send end-of-stream if some channels are left.
+                        if len(input_ids) > 0:
+                            continue
+
+                    # Broadcast the message to all outputs
+                    for (output_id, output_ch) in self.output_channels.items():
+                        output_ch.put(msg)
+
+                    # Exit if no input channels left
+                    if len(input_ids) == 0:
+                        return

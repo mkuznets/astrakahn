@@ -82,18 +82,14 @@ def run_box(box_type, function, passport, test_input):
 
     if not (box_type == components.Transductor
             or box_type == components.Inductor
+            or box_type == components.Copier
             or box_type == components.Reductor):
         raise ValueError("Wrong box type")
 
     try:
-        # Infer the number of inputs and outputs from the passport
-        box_inputs = (len(passport['input']),
-                      {i: '' for i in range(len(passport['input']))})
-        box_outputs = (len(passport['output']),
-                       {i: '' for i in range(len(passport['output']))})
-
         # Create a box
-        box = box_type(box_inputs, box_outputs, function, passport)
+        box = box_type(len(passport['input']), len(passport['output']),
+                       function, passport)
         box.start()
 
         # If test_input contains only one sequence, it will be sent to the

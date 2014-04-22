@@ -6,16 +6,19 @@ import os
 # SLOPPY HACK
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
 
-from boxes import PrimeTransductor, PrimeInductor, SomeReductor, MonadicReductor
+import boxes
 
-transductor = PrimeTransductor()
+transductor = boxes.PrimeTransductor()
 transductor.test()
 
-inductor = PrimeInductor()
+inductor = boxes.PrimeInductor()
 inductor.test()
 
-reductor = SomeReductor()
+reductor = boxes.SomeReductor()
 reductor.test()
 
-reductor = MonadicReductor()
+reductor = boxes.MonadicReductor()
 reductor.test()
+
+reductor = boxes.Merger()
+reductor.test(view=True, verbose=True)

@@ -45,6 +45,9 @@ class Channel:
 
         return
 
+    def empty(self):
+        return self.queue.empty()
+
     def pressure(self):
         """
         Return the pressure value of the channel.
