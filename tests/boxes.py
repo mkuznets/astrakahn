@@ -9,8 +9,10 @@ import math
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
 
 from communication import SegmentationMark
-from components import Transductor, Inductor, Reductor, Copier
+from components import Transductor, Inductor, Reductor, Copier, Synchroniser
 from helpers import Testable
+
+import sync
 
 
 class PrimeTransductor(Testable):
@@ -187,3 +189,23 @@ class Merger(Testable):
         result = (a + b) % 4
 
         return {0: result}
+
+class Sync_zip2(Testable):
+
+    def __init__(self):
+
+        self.type = Synchroniser
+        self.function = sync.zip2
+
+        self.passport = {
+            'input':  (object, object,),
+            'output': (object,)
+        }
+
+        self.test_input = \
+            {0: [1, 2, 3, 4, SegmentationMark(0), 10],
+             1: [7, 8, 9, 10, 9, SegmentationMark(0)]
+            }
+
+        self.reference_output = \
+            [3, ')(', 0, 3, 'sigma_0']

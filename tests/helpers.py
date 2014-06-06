@@ -80,12 +80,6 @@ class Consumer(Agent):
 
 def run_box(box_type, function, passport, test_input):
 
-    if not (box_type == components.Transductor
-            or box_type == components.Inductor
-            or box_type == components.Copier
-            or box_type == components.Reductor):
-        raise ValueError("Wrong box type")
-
     try:
         # Create a box
         box = box_type(len(passport['input']), len(passport['output']),
@@ -134,25 +128,21 @@ class Testable:
         box_name = self.__class__.__name__
         print(box_name + ": ", end="")
 
-        try:
-            result = run_box(self.type, self.function, self.passport,
-                             self.test_input)
+        result = run_box(self.type, self.function, self.passport,
+                         self.test_input)
 
-            if verbose:
-                print("\n" + "Result:   ", str(result), "\n" +
-                             "Expected: ", str(self.reference_output))
+        if verbose:
+            print("\n" + "Result:   ", str(result), "\n" +
+                         "Expected: ", str(self.reference_output))
 
-            if view:
-                print('')
-                return
+        if view:
+            print('')
+            return
 
-            if result == self.reference_output:
-                print("Test passed")
-            else:
-                print("Test FAILED")
+        if result == self.reference_output:
+            print("Test passed")
+        else:
+            print("Test FAILED")
 
-            if verbose:
-                print('')
-
-        except AttributeError as e:
-            print("Testing attributes must be provided: " + str(e))
+        if verbose:
+            print('')

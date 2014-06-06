@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from multiprocessing import Queue, Event
+from multiprocessing import Queue, Event, Lock
 
 
 class Channel:
@@ -8,45 +8,70 @@ class Channel:
     AstraKahn channel
     """
 
-    def __init__(self, id_channel, name=None, depth=None, queue=None):
+    def __init__(self, ready_flag=None, depth=0, queue=None):
         self.queue = Queue() if not queue else queue
-        self.ready = Event()
-        self.ready.set()
 
-        # Paramaters of the channel
-        self.id = id_channel
-        self.name = name if name is not None else '_' + str(self.id)
+        # The flag is shared among all input channels and set if the channel
+        # is not empty.
+        self.ready = ready_flag
+
+        # The flag is set if the number of messages exceeds the critical
+        # pressure.
+        self.unblocked = Event()
+        self.unblocked.set()
+
+        # Parameters of the channel
         self.depth = depth
         self.critical_pressure = 10
+
+        self.me = Lock()
+
+    def set_ready_flag(self, flag):
+        self.ready = flag
 
     def get(self):
         """
         Get a message from the channel
         """
+        self.me.acquire()
 
-        if not self.is_critical():
-            self.ready.set()
+        was_critical = self.is_critical()
+
+        # Last message - channel is not ready for reading
+        if self.pressure() == 1:
+            if self.ready and self.ready.is_set():
+                self.ready.clear()
 
         msg = self.queue.get()
 
+        # Pressure goes down - channel is unlocked
+        if was_critical:
+            self.unblocked.set()
+
+        self.me.release()
         return msg
 
     def put(self, msg):
         """
         Put a message to the channel
         """
+        self.me.acquire()
 
-        if self.is_critical():
-            self.ready.clear()
-        else:
-            self.ready.set()
+        p_before = self.pressure()
+
+        # Pressure is critical now - channel is blocked.
+        if (self.pressure() + 1) == self.critical_pressure:
+            self.unblocked.clear()
 
         self.queue.put(msg)
 
-        return
+        # The only message in the channel - channel is ready for reading
+        if p_before == 0:
+            if self.ready:
+                self.ready.set()
 
-    def empty(self):
-        return self.queue.empty()
+        self.me.release()
+        return
 
     def pressure(self):
         """
@@ -57,9 +82,17 @@ class Channel:
         assumption.  However, for the computations to be effective more
         sophisticated definition of pressure must be elaborated.
         """
-
         queue_size = self.queue.qsize()
         return queue_size if queue_size > 0 else 0
+
+    def wait_blocked(self):
+        self.unblocked.wait()
+
+    def wait_ready(self):
+        self.ready.wait()
+
+    def is_empty(self):
+        return self.queue.empty()
 
     def is_critical(self):
         return self.pressure() >= self.critical_pressure
