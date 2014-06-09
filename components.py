@@ -36,6 +36,9 @@ class Vertex:
         self.input_ready = Event()
         self.input_ready.clear()
 
+        self.process_functions = []
+        self.processes = []
+
         # PID of the master process. It is used for killing the whole network.
         self.master_pid = os.getpid()
 
@@ -157,28 +160,6 @@ class Vertex:
                 put(cid, msg)
 
     def start(self):
-        raise NotImplementedError("")
-
-    def stop(self):
-        raise NotImplementedError("")
-
-    def join(self):
-        raise NotImplementedError("")
-
-
-class Box(Vertex):
-
-    def __init__(self, n_inputs, n_outputs, core, passport):
-        super(Box, self).__init__(n_inputs, n_outputs)
-        self.core = core
-        self.passport = passport
-
-        self.impl_name = self.__class__.__name__
-        self.process_functions = []
-        self.processes = []
-        self.logger = logging.getLogger('inductor')
-
-    def start(self):
         if self.process_functions:
             for f in self.process_functions:
                 p = Process(target=f)
@@ -195,6 +176,20 @@ class Box(Vertex):
                 p.join()
         else:
             logger.warning("Box has no running processes to join.")
+
+    def stop(self):
+        raise NotImplementedError("")
+
+
+class Box(Vertex):
+
+    def __init__(self, n_inputs, n_outputs, core, passport):
+        super(Box, self).__init__(n_inputs, n_outputs)
+        self.core = core
+        self.passport = passport
+
+        self.impl_name = self.__class__.__name__
+        self.logger = logging.getLogger(self.impl_name)
 
     def spawn(self, n):
         raise NotImplementedError("")
@@ -612,3 +607,6 @@ class Inductor(Box):
 
                 if msg.end_of_stream():
                     return
+
+
+
