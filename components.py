@@ -208,15 +208,15 @@ class Transductor(Box):
         self.logger = logging.getLogger('transductor')
 
     def start(self):
-        self.router = Process(target=self.router)
-        self.router.start()
-        self.merger = Process(target=self.merger)
-        self.merger.start()
+        self.router_process = Process(target=self.router)
+        self.router_process.start()
+        self.merger_process = Process(target=self.merger)
+        self.merger_process.start()
         pass
 
     def join(self):
-        self.router.join()
-        self.merger.join()
+        self.router_process.join()
+        self.merger_process.join()
 
     def spawn(self, n):
         if n > 0:
@@ -501,3 +501,88 @@ class Transductor(Box):
             self.active_cores.remove(bid)
         self.core_slots.append(bid)
         return bid
+
+class Inductor(Box):
+    """
+    Inductor is an AstraKahn box that responds to a single message from the
+    input channel with a sequence of messages on each of its output channels.
+
+        * One input and at least one output
+        * \sigma_n are bypassed as \sigma_{n+1}, and a \sigma_1 is inserted
+          between every two consecutive data messages
+        * After each message in a response sequence continuation message is
+          Always generated and used in the next iteration, potentially after
+          a blockage due to critical pressure in the outputs.
+    """
+    def __init__(self, n_inputs, n_outputs, function, passport, parameters=None):
+        # Inductor has a single input and one or more outputs
+        assert(n_inputs == 1 and n_outputs >= 1)
+
+        super(Inductor, self).__init__(n_inputs, n_outputs, core,
+                                       passport=None)
+
+        self.logger = logging.getLogger('inductor')
+
+    def start(self):
+        self.c
+
+
+    def core_wrapper(self):
+        msg = None
+        continuation = None
+        consecutive_msg = False
+
+        # Protocol loop
+        while True:
+            msg = self.read_message(0)\
+                if not continuation else comm.DataMessage(continuation)
+
+            if not msg.is_segmark():
+
+                if consecutive_msg and not continuation:
+                    # Put a segmentation mark between consecutive messages
+                    for (id, out_channel) in self.outputs.items():
+                        out_channel.put(comm.SegmentationMark(1))
+
+                consecutive_msg = True
+
+                # Evaluate the core function in the input data
+                output_data = self.function(msg.content)
+
+                # If function returns None, output is considered to be empty
+                if output_data is None:
+                    continue
+
+                # Send the result (except for `continuation' to outputs
+                for (channel_id, data) in output_data.items():
+                    if channel_id != 'continuation':
+                        out_msg = comm.DataMessage(data)
+                        self.outputs[channel_id].put(out_msg)
+
+                if 'continuation' not in output_data:
+                    # Absence of `continuation' in the result means that it's
+                    # the last element of sequence.
+                    continuation = None
+
+                    continue
+                else:
+                    # Assign `continuation' to be read in the next step.
+                    continuation = output_data['continuation']
+                    continue
+
+            else:
+                consecutive_msg = False
+
+                # Choose a proper segmark
+                if msg.n > 0:
+                    # Segmentation marks are transferred through inductor with
+                    # incremented depth.
+                    segmark = comm.SegmentationMark(msg.n + 1)
+                elif msg.n == 0:
+                    segmark = comm.SegmentationMark(0)
+
+                for (id, out_channel) in self.outputs.items():
+                    out_channel.put(segmark)
+
+                if msg.end_of_stream():
+                    return
