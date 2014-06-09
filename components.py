@@ -4,7 +4,7 @@ import os
 import sys
 import signal
 
-from multiprocessing import Process, Queue, Event
+from multiprocessing import Process, Queue, Event, JoinableQueue
 from queue import Empty as Empty
 
 import communication as comm
@@ -14,7 +14,10 @@ import collections
 from random import sample
 import logging
 
-logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+import copy
+import time
+
+logging.basicConfig(stream=sys.stderr, level=logging.ERROR)
 
 
 class Vertex:
@@ -126,6 +129,7 @@ class Vertex:
         if wait_outputs:
             self.wait_blocked_outputs()
 
+        self.inputs[cid].wait_ready()
         msg = self.inputs[cid].get()
 
         return msg
@@ -158,6 +162,9 @@ class Vertex:
     def stop(self):
         raise NotImplementedError("")
 
+    def join(self):
+        raise NotImplementedError("")
+
 
 class Box(Vertex):
 
@@ -165,6 +172,29 @@ class Box(Vertex):
         super(Box, self).__init__(n_inputs, n_outputs)
         self.core = core
         self.passport = passport
+
+        self.impl_name = self.__class__.__name__
+        self.process_functions = []
+        self.processes = []
+        self.logger = logging.getLogger('inductor')
+
+    def start(self):
+        if self.process_functions:
+            for f in self.process_functions:
+                p = Process(target=f)
+                p.start()
+                self.processes.append(p)
+        else:
+            raise NotImplementedError("The concrete box implementation must "
+                                      "specify a list of process functions in "
+                                      "order to be able to run")
+
+    def join(self):
+        if self.processes:
+            for p in self.processes:
+                p.join()
+        else:
+            logger.warning("Box has no running processes to join.")
 
     def spawn(self, n):
         raise NotImplementedError("")
@@ -178,7 +208,7 @@ class Transductor(Box):
         * One input and at least one output
         * Segmentation bypassed unamended to all outputs
     """
-    def __init__(self, n_inputs, n_outputs, core, n_cores, passport=None):
+    def __init__(self, n_inputs, n_outputs, core, n_cores=1, passport=None):
         # Transductor has a single input and one or more outputs.
         assert(n_inputs == 1 and n_outputs >= 1)
         super(Transductor, self).__init__(n_inputs, n_outputs, core, passport)
@@ -200,23 +230,16 @@ class Transductor(Box):
                               for i in range(self.n_cores)]
         self.output_buffer = Queue()
 
+        self.segmark_received = Event()
+        self.segmark_received.clear()
+
         # The queue is owned by router and enables direct communication between
         # merger and router. It is also used by coordinator to signal the
         # router to spawn given number of cores.
         self.control = Queue()
 
-        self.logger = logging.getLogger('transductor')
-
-    def start(self):
-        self.router_process = Process(target=self.router)
-        self.router_process.start()
-        self.merger_process = Process(target=self.merger)
-        self.merger_process.start()
-        pass
-
-    def join(self):
-        self.router_process.join()
-        self.merger_process.join()
+        # Function for initial box running.
+        self.process_functions = [self.router, self.merger]
 
     def spawn(self, n):
         if n > 0:
@@ -360,8 +383,8 @@ class Transductor(Box):
                     break
 
             ## Message processing
-            self.inputs[0].wait_ready()
-            msg = self.inputs[0].get()
+            # TODO: `wait_outputs' MUST BE TRUE in the final version.
+            msg = self.get_message(cid=0, wait_outputs=False)
 
             if msg.end_of_stream():
                 # Move to idle-state and broadcast the end-of-stream to all
@@ -374,6 +397,7 @@ class Transductor(Box):
             elif msg.is_segmark():
                 self.output_buffer.put({'type': 'segmark', 'depth': msg.n,
                                         'mid': mid, 'n_seg': n_seg})
+                self.segmark_received.wait()
                 n_seg = 0
                 mid += 1
 
@@ -409,20 +433,44 @@ class Transductor(Box):
             reading of data from the nternal queue.
             """
             nonlocal n_seg, read_buffer, data_buffer, wait_segment
-            handle_result({'result': comm.SegmentationMark(depth), 'mid': mid})
+            handle_result(msg=comm.SegmentationMark(depth), mid=mid)
             n_seg = 0
             read_buffer = True
             wait_segment = False
             data_buffer = sorted(data_buffer, key=lambda x: x['mid'],
                                  reverse=True)
 
-        def handle_result(data):
-            ## Process the data-message somehow
-            #for (ch, data) in output_data.items():
-            #    out_msg = comm.DataMessage(data)
-            #    self.outputs[ch].put(out_msg)
-            logger.info("Result for MID: %d: %s", data['mid'],
-                        str(data['result']))
+        def handle_result(result=None, msg=None, mid=-1):
+
+            if result is not None:
+                # Result as a mapping to different outputs.
+                if type(result) != dict:
+                    raise ValueError("Result mapping to outputs must be given"
+                                     "as a dictionary!")
+                if (result.keys() - self.outputs.keys()):
+                    print(result.keys() - self.outputs.keys())
+                    raise ValueError("Wrong output channels given")
+
+                for (cid, data) in result.items():
+                    output_msg = comm.DataMessage(data)
+                    self.put_message(output_msg, cid)
+
+                logger.info("Result for MID: %d: %s", mid,
+                            str(result))
+
+            elif msg is not None:
+                # Result as a single message to all outputs.
+                if not isinstance(msg, comm.Message):
+                    raise ValueError("Type of the given message is wrong!")
+
+                self.put_message(msg)
+
+                logger.info("Result for MID: %d: %s", mid,
+                            str(msg))
+
+            else:
+                # Empty output
+                pass
 
         ##########################################
 
@@ -466,9 +514,11 @@ class Transductor(Box):
                     n_seg_full = data['n_seg']
                     wait_segment = True
 
+                self.segmark_received.set()
+
             elif data['type'] == 'datamsg':
                 n_seg += 1
-                handle_result(data)
+                handle_result(result=data['result'], mid=data['mid'])
 
                 # The whole segment was processed - send the segmark.
                 if wait_segment and n_seg == n_seg_full:
@@ -483,7 +533,7 @@ class Transductor(Box):
             elif data['type'] == 'exit':
                 # Router has stopped. Send end-of-stream forward and exit.
                 logger.debug("Going to exit. Good-bye!")
-                self.put_message(comm.SegmentationMark(0))
+                handle_result(msg=comm.SegmentationMark(0))
                 return
 
             else:
@@ -514,75 +564,51 @@ class Inductor(Box):
           Always generated and used in the next iteration, potentially after
           a blockage due to critical pressure in the outputs.
     """
-    def __init__(self, n_inputs, n_outputs, function, passport, parameters=None):
+    def __init__(self, n_inputs, n_outputs, core, passport):
         # Inductor has a single input and one or more outputs
         assert(n_inputs == 1 and n_outputs >= 1)
+        super(Inductor, self).__init__(n_inputs, n_outputs, core, passport)
 
-        super(Inductor, self).__init__(n_inputs, n_outputs, core,
-                                       passport=None)
-
-        self.logger = logging.getLogger('inductor')
-
-    def start(self):
-        self.c
-
+        # Function for initial box running.
+        self.process_functions = [self.core_wrapper]
 
     def core_wrapper(self):
         msg = None
         continuation = None
         consecutive_msg = False
 
-        # Protocol loop
         while True:
-            msg = self.read_message(0)\
+            msg = self.get_message(cid=0, wait_outputs=False)\
                 if not continuation else comm.DataMessage(continuation)
 
             if not msg.is_segmark():
 
                 if consecutive_msg and not continuation:
                     # Put a segmentation mark between consecutive messages
-                    for (id, out_channel) in self.outputs.items():
-                        out_channel.put(comm.SegmentationMark(1))
+                    self.put_message(comm.SegmentationMark(1))
 
                 consecutive_msg = True
 
                 # Evaluate the core function in the input data
-                output_data = self.function(msg.content)
+                result, continuation = self.core(msg.content)
 
                 # If function returns None, output is considered to be empty
-                if output_data is None:
+                if result is None:
                     continue
 
-                # Send the result (except for `continuation' to outputs
-                for (channel_id, data) in output_data.items():
-                    if channel_id != 'continuation':
-                        out_msg = comm.DataMessage(data)
-                        self.outputs[channel_id].put(out_msg)
-
-                if 'continuation' not in output_data:
-                    # Absence of `continuation' in the result means that it's
-                    # the last element of sequence.
-                    continuation = None
-
-                    continue
-                else:
-                    # Assign `continuation' to be read in the next step.
-                    continuation = output_data['continuation']
-                    continue
+                # Send the result (except for `continuation') to outputs
+                for (cid, data) in result.items():
+                    output_msg = comm.DataMessage(data)
+                    self.put_message(output_msg, cid)
 
             else:
                 consecutive_msg = False
 
-                # Choose a proper segmark
-                if msg.n > 0:
-                    # Segmentation marks are transferred through inductor with
-                    # incremented depth.
-                    segmark = comm.SegmentationMark(msg.n + 1)
-                elif msg.n == 0:
-                    segmark = comm.SegmentationMark(0)
-
-                for (id, out_channel) in self.outputs.items():
-                    out_channel.put(segmark)
+                # Segmentation marks are transferred through inductor with
+                # incremented depth.
+                output_msg = copy.copy(msg)
+                output_msg.increment()
+                self.put_message(output_msg)
 
                 if msg.end_of_stream():
                     return

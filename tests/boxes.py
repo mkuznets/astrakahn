@@ -9,11 +9,8 @@ import math
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
 
 from communication import SegmentationMark
-from components import Transductor, Inductor, Reductor, Copier, Synchroniser
+from components import Transductor, Inductor
 from helpers import Testable
-
-import sync
-
 
 class PrimeTransductor(Testable):
 
@@ -83,26 +80,26 @@ class PrimeInductor(Testable):
         n_primes = input_data['n_primes']
 
         if n_primes == 0:
-            return {}
+            return (None, None)
 
         continuation = {'low': n+1, 'n_primes': n_primes}
 
         if n < 2:
-            return {'continuation': continuation}
+            return (None, continuation)
         if n == 2:
             continuation['n_primes'] -= 1
-            return {0: n, 'continuation': continuation}
+            return ({0: n}, continuation)
         if not (n % 2):
-            return {'continuation': continuation}
+            return (None, continuation)
 
         bound = math.sqrt(n)
         for i in range(3, int(bound)+1, 2):
             if not (n % i):
-                return {'continuation': continuation}
+                return (None, continuation)
 
         continuation['n_primes'] -= 1
 
-        return {0: n, 'continuation': continuation}
+        return ({0: n}, continuation)
 
 
 class SomeReductor(Testable):

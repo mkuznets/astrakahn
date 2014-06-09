@@ -12,7 +12,7 @@ import helpers
 from copy import copy
 from time import sleep
 import itertools
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue, Event
 
 
 class Agent:
@@ -39,7 +39,7 @@ class Producer(Agent):
 
     def protocol(self):
         for i in self.counter:
-            self.channel.ready.wait()
+            self.channel.wait_blocked()
 
             try:
                 message = next(self.msg_iterator)
@@ -66,6 +66,7 @@ class Consumer(Agent):
 
     def protocol(self):
         for i in self.counter:
+            self.channel.wait_ready()
             message = self.channel.get()
 
             if self.output_queue:
@@ -82,8 +83,17 @@ def run_box(box_type, function, passport, test_input):
 
     try:
         # Create a box
-        box = box_type(len(passport['input']), len(passport['output']),
-                       function, passport)
+        box = box_type(n_inputs=len(passport['input']),
+                       n_outputs=len(passport['output']),
+                       core=function,
+                       passport=passport)
+
+        ch_gen = comm.Channel(box.input_ready)
+        ch_out = comm.Channel(Event())
+
+        box.set_input(0, ch_gen)
+        box.set_output(0, ch_out)
+
         box.start()
 
         # If test_input contains only one sequence, it will be sent to the
@@ -93,11 +103,11 @@ def run_box(box_type, function, passport, test_input):
 
 
         for (channel_id, sequence) in test_input.items():
-            producer = Producer(box.input_channels[channel_id], iter(sequence))
+            producer = Producer(ch_gen, iter(sequence))
             producer.run()
 
         main_output = Queue()
-        consumer = Consumer(box.output_channels[0], main_output)
+        consumer = Consumer(ch_out, main_output)
         consumer.run()
 
         # Collect the output
@@ -109,7 +119,7 @@ def run_box(box_type, function, passport, test_input):
             if msg.end_of_stream():
                 break
 
-        box.thread.join()
+        box.join()
         producer.thread.join()
         consumer.thread.join()
 

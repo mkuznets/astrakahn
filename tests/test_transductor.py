@@ -36,7 +36,7 @@ def gen(channel):
     channel.put(comm.SegmentationMark(0))
 
 # Box definition
-box = comp.Transductor(1, 1, foo, 10)
+box = comp.Transductor(1, 1, foo, 2)
 
 ch_gen = comm.Channel(box.input_ready)
 ch_out = comm.Channel()

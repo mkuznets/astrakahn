@@ -8,11 +8,11 @@ sys.path.insert(0, os.path.dirname(__file__) + '/..')
 
 import boxes
 
-#transductor = boxes.PrimeTransductor()
-#transductor.test()
+transductor = boxes.PrimeTransductor()
+transductor.test()
 #
-#inductor = boxes.PrimeInductor()
-#inductor.test()
+inductor = boxes.PrimeInductor()
+inductor.test()
 #
 #reductor = boxes.SomeReductor()
 #reductor.test()
@@ -23,5 +23,5 @@ import boxes
 #reductor = boxes.Merger()
 #reductor.test(view=True, verbose=True)
 
-sync = boxes.Sync_zip2()
-sync.test(view=True, verbose=True)
+#sync = boxes.Sync_zip2()
+#sync.test(view=True, verbose=True)

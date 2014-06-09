@@ -113,6 +113,9 @@ class Message:
         """
         return False
 
+    def is_empty(self):
+        return False
+
 
 class SegmentationMark(Message):
     """
@@ -128,6 +131,7 @@ class SegmentationMark(Message):
     def __init__(self, n):
         # Number of opening and closing brakets.
         self.n = n
+        self.empty = False
         self.content = self.__repr__()
 
     def is_segmark(self):
@@ -135,6 +139,19 @@ class SegmentationMark(Message):
 
     def end_of_stream(self):
         return True if (self.n == 0) else False
+
+    def set_empty(self):
+        self.n = -1
+        self.empty = True
+
+    def increment(self):
+        if self.n > 0: self.n += 1
+        self.content = self.__repr__()
+
+    def decrement(self):
+        if self.n > 1: self.n -= 1
+        elif self.n == 1: self.set_empty()
+        self.content = self.__repr__()
 
     def __repr__(self):
         if self.n > 0:
