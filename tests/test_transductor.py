@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 
+# SLOPPY HACK
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__) + '/..')
+
 import components as comp
 import communication as comm
 import time
@@ -44,9 +49,5 @@ thread = Process(target=gen, args=(ch_gen,))
 thread.start()
 
 box.start()
-
-for i in range(9, 0, -1):
-    time.sleep(5)
-    box.spawn(i)
 
 box.join()
