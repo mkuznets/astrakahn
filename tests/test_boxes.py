@@ -10,16 +10,16 @@ import boxes
 
 transductor = boxes.PrimeTransductor()
 transductor.test()
-#
+
 inductor = boxes.PrimeInductor()
 inductor.test()
-#
-#reductor = boxes.SomeReductor()
-#reductor.test()
-#
-#reductor = boxes.MonadicReductor()
-#reductor.test()
-#
+
+reductor = boxes.SomeReductor()
+reductor.test()
+
+reductor = boxes.MonadicReductor()
+reductor.test()
+
 #reductor = boxes.Merger()
 #reductor.test(view=True, verbose=True)
 

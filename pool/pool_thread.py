@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 
-from multiprocessing import Pool, Queue, Process, current_process, Event, Lock
-import multiprocessing
-from time import sleep
-import time
-import os
-import sys
-import random
+from multiprocessing import Queue, Process, Event, Array
 from queue import Empty as Empty
-from collections import deque
+
+import os
+import ctypes
+import numpy as np
+import random
 
 ### Generate input messages #######
 
+shared_array_base = Array(ctypes.c_double, 100)
+shared_array = np.ctypeslib.as_array(shared_array_base.get_obj())
+
 def gen(queue):
 
-    for i in range(30):
+    for i in range(0, 100, 2):
         #if i > 1 and not (i % 10):
             #sleep(random.random() * 2)
         queue.put(i)
@@ -81,7 +82,7 @@ class Box:
         self.input_channels[0].input_ready = self.input_ready
         self.output_channels[0] = Channel(10)
 
-        self.n_workers = 1
+        self.n_workers = 10
         self.workers = {}
         self.workers_threads = {}
 
@@ -157,15 +158,23 @@ class Box:
             if cid < 0 and m is None:
                 return
 
-            print("Output:", cid, m)
+            #print("Output:", cid, m)
             self.feedback.put(cid)
 
 def foo(a):
-    acc = 0.
-    b = 2000000
-    for i in range(b):
-        acc += 0.0000001 * a
-    return acc
+    k = shared_array[a:a+2]
+
+    print(os.getpid(), shared_array.__array_interface__['data'])
+
+    k[0] = random.random()
+    k[1] = float(os.getpid())
+    return 3
+
+    #acc = 0.
+    #b = 2000000
+    #for i in range(b):
+    #    acc += 0.0000001 * a
+    #return acc
 
 if __name__ == "__main__":
 
@@ -185,3 +194,4 @@ if __name__ == "__main__":
 
     router.join()
     merger.join()
+

@@ -47,7 +47,7 @@ class Producer(Agent):
                     if not isinstance(message, comm.Message) else message
 
             except StopIteration:
-                # Send end of scream mark
+                # Send end of stream mark
                 self.channel.put(comm.SegmentationMark(0))
                 break
 
@@ -66,7 +66,6 @@ class Consumer(Agent):
 
     def protocol(self):
         for i in self.counter:
-            self.channel.wait_ready()
             message = self.channel.get()
 
             if self.output_queue:
@@ -88,11 +87,11 @@ def run_box(box_type, function, passport, test_input):
                        core=function,
                        passport=passport)
 
-        ch_gen = comm.Channel(box.input_ready)
-        ch_out = comm.Channel(Event())
+        inputs = {i: comm.Channel() for i in range(len(passport['input']))}
+        outputs = {i: comm.Channel() for i in range(len(passport['output']))}
 
-        box.set_input(0, ch_gen)
-        box.set_output(0, ch_out)
+        box.inputs = inputs
+        box.outputs = outputs
 
         box.start()
 
@@ -103,11 +102,11 @@ def run_box(box_type, function, passport, test_input):
 
 
         for (channel_id, sequence) in test_input.items():
-            producer = Producer(ch_gen, iter(sequence))
+            producer = Producer(box.inputs[channel_id], iter(sequence))
             producer.run()
 
         main_output = Queue()
-        consumer = Consumer(ch_out, main_output)
+        consumer = Consumer(box.outputs[0], main_output)
         consumer.run()
 
         # Collect the output

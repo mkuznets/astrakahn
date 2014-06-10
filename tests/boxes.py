@@ -9,14 +9,14 @@ import math
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
 
 from communication import SegmentationMark
-from components import Transductor, Inductor
+import components as comp
 from helpers import Testable
 
 class PrimeTransductor(Testable):
 
     def __init__(self):
 
-        self.type = Transductor
+        self.type = comp.Transductor
 
         self.passport = {
             'input':  (int,),
@@ -53,7 +53,7 @@ class PrimeInductor(Testable):
 
     def __init__(self):
 
-        self.type = Inductor
+        self.type = comp.Inductor
 
         self.test_input = [{'low': 200, 'n_primes': 3},
                            SegmentationMark(2),
@@ -106,7 +106,7 @@ class SomeReductor(Testable):
 
     def __init__(self):
 
-        self.type = Reductor
+        self.type = comp.Reductor
 
         self.passport = {
             'input':  (int, int,),
@@ -135,7 +135,7 @@ class MonadicReductor(Testable):
 
     def __init__(self):
 
-        self.type = Reductor
+        self.type = comp.Reductor
 
         self.passport = {
             'input':  (int,),
@@ -163,7 +163,7 @@ class Merger(Testable):
 
     def __init__(self):
 
-        self.type = Copier
+        self.type = comp.Copier
 
         self.passport = {
             'input':  (int, int,),
@@ -191,7 +191,7 @@ class Sync_zip2(Testable):
 
     def __init__(self):
 
-        self.type = Synchroniser
+        self.type = comp.Synchroniser
         self.function = sync.zip2
 
         self.passport = {

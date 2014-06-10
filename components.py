@@ -132,7 +132,6 @@ class Vertex:
         if wait_outputs:
             self.wait_blocked_outputs()
 
-        self.inputs[cid].wait_ready()
         msg = self.inputs[cid].get()
 
         return msg
@@ -379,7 +378,7 @@ class Transductor(Box):
 
             ## Message processing
             # TODO: `wait_outputs' MUST BE TRUE in the final version.
-            msg = self.get_message(cid=0, wait_outputs=False)
+            msg = self.get_message(cid=0)
 
             if msg.end_of_stream():
                 # Move to idle-state and broadcast the end-of-stream to all
@@ -443,7 +442,6 @@ class Transductor(Box):
                     raise ValueError("Result mapping to outputs must be given"
                                      "as a dictionary!")
                 if (result.keys() - self.outputs.keys()):
-                    print(result.keys() - self.outputs.keys())
                     raise ValueError("Wrong output channels given")
 
                 for (cid, data) in result.items():
@@ -547,6 +545,7 @@ class Transductor(Box):
         self.core_slots.append(bid)
         return bid
 
+
 class Inductor(Box):
     """
     Inductor is an AstraKahn box that responds to a single message from the
@@ -560,20 +559,31 @@ class Inductor(Box):
           a blockage due to critical pressure in the outputs.
     """
     def __init__(self, n_inputs, n_outputs, core, passport):
-        # Inductor has a single input and one or more outputs
+        # Inductor has a single input and one or more outputs.
         assert(n_inputs == 1 and n_outputs >= 1)
-        super(Inductor, self).__init__(n_inputs, n_outputs, core, passport)
+        super(Inductor, self).__init__(n_inputs, n_outputs, core, passport=None)
 
         # Function for initial box running.
         self.process_functions = [self.core_wrapper]
+
+        # Messages that are sent to the input right after the start.
+        self.initial_messages = []
+
 
     def core_wrapper(self):
         msg = None
         continuation = None
         consecutive_msg = False
 
+        # Send initial messages to itself.
+        if self.initial_messages:
+            # TODO: wrap it up somehow...
+            self.inputs[0].wait_blocked()
+            for m in self.initial_messages:
+                self.inputs[0].put(m)
+
         while True:
-            msg = self.get_message(cid=0, wait_outputs=False)\
+            msg = self.get_message(cid=0)\
                 if not continuation else comm.DataMessage(continuation)
 
             if not msg.is_segmark():
@@ -608,5 +618,107 @@ class Inductor(Box):
                 if msg.end_of_stream():
                     return
 
+class Generator(Inductor):
+
+    def __init__(self, n_inputs, n_outputs, core, passport=None, initial_messages=[]):
+        # Inductor has a single input and one or more outputs
+        super(Generator, self).__init__(n_inputs, n_outputs, core, passport)
+
+        self.initial_messages = list(initial_messages)
+        self.initial_messages.append(comm.SegmentationMark(0))
 
 
+class Reductor(Box):
+    def __init__(self, n_inputs, n_outputs, core, n_cores=1, passport=None,
+                 ordered=False, segmentable=True):
+        # Reductor has 1 or 2 inputs and one or more outputs
+        assert((n_inputs == 1 or n_inputs == 2) and n_outputs >= 1)
+
+        super(Reductor, self).__init__(n_inputs, n_outputs, core, passport)
+
+        self.monadic = True if (n_inputs == 1) else False
+        self.ordered = ordered
+        self.segmentable = segmentable
+        self.term_channel = 0 if self.monadic else 1
+
+        self.process_functions = [self.core_wrapper]
+
+    def core_wrapper(self):
+        partial_result = None
+        term = None
+
+        # Protocol loop
+        while True:
+            # Message from the 1st channel (first element of reduction)
+            partial_result = self.get_message(cid=0)
+
+            # Segmark from the first channel bypassed with incremented depth
+            if partial_result.is_segmark():
+                output_msg = copy.copy(partial_result)
+                output_msg.increment()
+                self.put_message(output_msg, range(1, len(self.outputs)))
+
+                if partial_result.end_of_stream():
+                    return
+                continue
+
+            # Second element of reduction or first element of list of
+            # subsequent terms to reduce
+            term = self.get_message(cid=self.term_channel)
+
+            # Segmark from the second channel here means that there's only one
+            # term to reduce - from the 1st channel. Send it out with a proper
+            # segmark.
+            if term.is_segmark():
+                # Send complete result out
+
+                output_msg = copy.copy(term)
+                output_msg.decrement()
+                if not output_msg.is_empty():
+                    self.put_message(output_msg, 0)
+
+                if term.end_of_stream():
+                    return
+
+                continue
+
+            while True:
+                # Partial result computation
+                output_data = self.core(partial_result.content, term.content)
+
+                # Send some intermediate values (that may depends on
+                # computation of partial result) to all outputs except for the
+                # first one.
+                for (cid, data) in output_data.items():
+                    if cid > 0:
+                        out_msg = comm.DataMessage(data)
+                        self.put_message(out_msg, cid)
+
+                partial_result = comm.DataMessage(output_data[0])
+
+                # These calls are blocked if there's no messages in 2nd input
+                # or output channels (except for the 1st one) are blocked.
+                term = self.get_message(cid=self.term_channel)
+                self.wait_blocked_outputs(range(1, len(self.outputs)))
+
+                # Segmark here indicates the end of the term list: stops the
+                # computations
+                if term.is_segmark():
+                    break
+
+            # Protocol reaches this point only at the end of computations, i.e.
+            # iff `term' is a segmark.
+            # TODO: such control dependency is TOO implicit. Certainly poor
+            # design decision.
+
+            # Send complete result out
+            self.put_message(partial_result, 0)
+
+            # Follow the complete result by a proper segmark.
+            output_msg = copy.copy(term)
+            output_msg.decrement()
+            if not output_msg.is_empty():
+                self.put_message(output_msg, 0)
+
+            if term.end_of_stream():
+                return

@@ -8,12 +8,16 @@ class Channel:
     AstraKahn channel
     """
 
-    def __init__(self, ready_flag=None, depth=0, queue=None):
+    def __init__(self, ready_any_flag=None, depth=0, queue=None):
         self.queue = Queue() if not queue else queue
 
-        # The flag is shared among all input channels and set if the channel
-        # is not empty.
-        self.ready = ready_flag
+        # The flag is shared among all input channels of a box and indicates
+        # that at least one channel is ready. It is used only in synchronisers
+        # and thus can be omitted for usual boxes.
+        self.ready_any = ready_any_flag
+
+        # Indicates that the channel is ready.
+        self.ready = Event()
 
         # The flag is set if the number of messages exceeds the critical
         # pressure.
@@ -26,21 +30,22 @@ class Channel:
 
         self.me = Lock()
 
-    def set_ready_flag(self, flag):
-        self.ready = flag
-
-    def get(self):
+    def get(self, wait_ready=True):
         """
         Get a message from the channel
         """
+        if wait_ready:
+            self.wait_ready()
+
         self.me.acquire()
 
         was_critical = self.is_critical()
 
         # Last message - channel is not ready for reading
         if self.pressure() == 1:
-            if self.ready and self.ready.is_set():
-                self.ready.clear()
+            if self.ready_any and self.ready_any.is_set():
+                self.ready_any.clear()
+            if self.ready.is_set(): self.ready.clear()
 
         msg = self.queue.get()
 
@@ -67,8 +72,8 @@ class Channel:
 
         # The only message in the channel - channel is ready for reading
         if p_before == 0:
-            if self.ready:
-                self.ready.set()
+            if self.ready_any: self.ready_any.set()
+            self.ready.set()
 
         self.me.release()
         return
@@ -87,6 +92,9 @@ class Channel:
 
     def wait_blocked(self):
         self.unblocked.wait()
+
+    def wait_ready_any(self):
+        self.ready_any.wait()
 
     def wait_ready(self):
         self.ready.wait()
@@ -136,6 +144,9 @@ class SegmentationMark(Message):
 
     def is_segmark(self):
         return True
+
+    def is_empty(self):
+        return self.empty
 
     def end_of_stream(self):
         return True if (self.n == 0) else False
