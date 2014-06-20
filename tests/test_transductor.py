@@ -20,7 +20,7 @@ def foo(a):
         acc += 0.0000001 * a
 
     end = time.time()
-    return ((a, acc), st, end)
+    return {0: ((a, acc), st, end)}
 
 
 def gen(channel):

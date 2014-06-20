@@ -8,13 +8,19 @@ class Channel:
     AstraKahn channel
     """
 
-    def __init__(self, ready_any_flag=None, depth=0, queue=None):
+    def __init__(self, depth=0, queue=None):
         self.queue = Queue() if not queue else queue
 
-        # The flag is shared among all input channels of a box and indicates
-        # that at least one channel is ready. It is used only in synchronisers
-        # and thus can be omitted for usual boxes.
-        self.ready_any = ready_any_flag
+        # The counter and `ready_any' flag are shared among all input channels
+        # of a vertex. Counter shows the number of messages received by all
+        # input channels. If it becomes, zero, `ready_any' is cleared.
+        # They are used only in synchronisers and other special types of
+        # vertices and thus can be omitted for usual boxes.
+        self.input_cnt = None
+        self.ready_any = None
+
+        # Check if the channel involved as an input channel of one of the boxes
+        self.input_sync = lambda: bool(self.ready_any) and bool(self.input_cnt)
 
         # Indicates that the channel is ready.
         self.ready = Event()
@@ -43,9 +49,13 @@ class Channel:
 
         # Last message - channel is not ready for reading
         if self.pressure() == 1:
-            if self.ready_any and self.ready_any.is_set():
-                self.ready_any.clear()
-            if self.ready.is_set(): self.ready.clear()
+            if self.input_sync():
+                with self.input_cnt.get_lock():
+                    self.input_cnt.value -= 1
+                    if not self.input_cnt.value:
+                        self.ready_any.clear()
+            if self.ready.is_set():
+                self.ready.clear()
 
         msg = self.queue.get()
 
@@ -72,7 +82,10 @@ class Channel:
 
         # The only message in the channel - channel is ready for reading
         if p_before == 0:
-            if self.ready_any: self.ready_any.set()
+            if self.input_sync():
+                with self.input_cnt.get_lock():
+                    self.input_cnt.value += 1
+                    self.ready_any.set()
             self.ready.set()
 
         self.me.release()
@@ -92,9 +105,6 @@ class Channel:
 
     def wait_blocked(self):
         self.unblocked.wait()
-
-    def wait_ready_any(self):
-        self.ready_any.wait()
 
     def wait_ready(self):
         self.ready.wait()
@@ -156,12 +166,15 @@ class SegmentationMark(Message):
         self.empty = True
 
     def increment(self):
-        if self.n > 0: self.n += 1
+        if self.n > 0:
+            self.n += 1
         self.content = self.__repr__()
 
     def decrement(self):
-        if self.n > 1: self.n -= 1
-        elif self.n == 1: self.set_empty()
+        if self.n > 1:
+            self.n -= 1
+        elif self.n == 1:
+            self.set_empty()
         self.content = self.__repr__()
 
     def __repr__(self):

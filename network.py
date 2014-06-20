@@ -3,7 +3,7 @@
 import networkx as nx
 import re
 import components as comp
-
+import collections
 
 def map_inverse(old_map):
     inv_map = {}
@@ -24,6 +24,36 @@ def map_merge(a, b):
     return merged_map
 
 
+def box_spec(category):
+    box_tuple = collections.namedtuple("Box", "box n_inputs n_outputs")
+
+    # Type handling
+    category_regexp = re.compile('([1-9]\d*)(T|I|G|DO|DU|MO|MS|MU)')
+    category_parse = category_regexp.findall(category)
+
+    if not category_parse:
+        raise ValueError("Wrong box category")
+
+    box_category = category_parse[0][1]
+
+    n_outputs = int(category_parse[0][0])
+    n_inputs = 2 if box_category[0] == 'D' else 1
+
+    # Assign box class
+    if box_category == 'T':
+        box_class = comp.Transductor
+    elif box_category == 'I':
+        box_class = comp.Inductor
+    elif box_category == 'G':
+        box_class = comp.Generator
+    elif box_category[0] == 'D' or box_category[0] == 'M':
+        box_class = comp.Reductor
+    else:
+        raise ValueError("Wrong box category")
+
+    return box_tuple(box_class, n_inputs, n_outputs)
+
+
 class Network:
 
     def __init__(self, name):
@@ -31,13 +61,13 @@ class Network:
         self.global_inputs = {}
         self.global_outputs = {}
 
-    def add_node(self, category, name, channels, core, passport):
+    def add_node(self, category, name, channels, core, passport, args=None):
 
         # Forbid identical names in the network
         if name in self.network.nodes():
             raise ValueError("There's already a box with this name.")
 
-        box = BoxWrapper(category, name, channels, core, passport)
+        box = BoxWrapper(category, name, channels, core, passport, args)
 
         # Inverse mapping of channels to be able to get channels by name
         inputs = map_inverse(box.inputs)
@@ -97,30 +127,21 @@ class Network:
             return False
         return True
 
+    def parallel_union(self):
+        pass
+
+    def serial_union(self):
+        pass
+
+
+
 
 class BoxWrapper:
 
-    def __init__(self, category, name, channels, core, passport):
+    def __init__(self, category, name, channels, core, passport, args):
 
-        # Type handling
-        category_regexp = re.compile('([1-9]\d*)(T|I|DO|DU|MO|MS|MU)')
-        category_parse = category_regexp.findall(category)
 
-        if not category_parse:
-            raise ValueError("Wrong box category")
-
-        box_category = category_parse[0][1]
-
-        self.n_outputs = int(category_parse[0][0])
-        self.n_inputs = 2 if box_category[0] == 'D' else 1
-
-        # Assign box class
-        if box_category == 'T':
-            self._box_class = comp.Transductor
-        elif box_category == 'I':
-            self._box_class = comp.Inductor
-        elif box_category[0] == 'D' or box_category[0] == 'M':
-            self._box_class = comp.Reductor
+        self._box_class, self.n_inputs, self.n_outputs = box_spec(category)
 
         # Default names
         self.inputs = {i: '_' + str(i) for i in range(self.n_inputs)}
@@ -191,6 +212,37 @@ class BoxWrapper:
             else:
                 raise ValueError("Wrong format of channel names")
 
+
+class morphism:
+    @staticmethod
+    def split(category):
+        def wrap(f):
+            f.spec = box_spec(category)
+            return f
+        return wrap
+
+    def map(f, category):
+        pass
+
+
+class Solver():
+    @morphism.split("1I")
+    def particle_partition(self, a, b):
+        print(a, b)
+
+    @morphism.map("1T")
+    def foo(self, a):
+        pass
+
+
+
+
+
+
+S = Solver()
+print(S.particle_partition.__code__.co_varnames)
+
+quit()
 
 if __name__ == '__main__':
 
