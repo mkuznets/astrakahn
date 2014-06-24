@@ -7,25 +7,6 @@ import communication as comm
 import collections
 import copy
 
-def map_inverse(old_map):
-    inv_map = {}
-    for k, v in old_map.items():
-        inv_map[v] = inv_map.get(v, [])
-        inv_map[v].append(k)
-    return inv_map
-
-
-def map_merge(a, b):
-    merged_map = {}
-    for (name, value) in b.items():
-        merged_map[name] = a.get(name, [])
-        merged_map[name] += value
-    for k in a.keys():
-        if k not in merged_map:
-            merged_map[k] = a[k]
-    return merged_map
-
-
 def channel_map(names):
     cmap = {}
     for i in range(len(names)):
