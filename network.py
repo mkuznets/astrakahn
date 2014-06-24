@@ -4,8 +4,8 @@ import networkx as nx
 import re
 import components as comp
 import communication as comm
-import collections
-import copy
+from collections import namedtuple
+
 
 def channel_map(names):
     cmap = {}
@@ -17,17 +17,18 @@ def channel_map(names):
             cmap[name] = [i]
     return cmap
 
+
 def box_spec(category):
-    box_tuple = collections.namedtuple("Box", "box n_inputs n_outputs ordered segmentable")
+    box_tuple = namedtuple("Box", "box n_inputs n_outputs ordered segmentable")
 
     # Type handling
-    category_regexp = re.compile('([1-9]\d*)?(T|I|C|P|DO|DU|MO|MS|MU)([1-9]\d*)?')
-    category_parse = category_regexp.findall(category)
+    cat_re = re.compile('([1-9]\d*)?(T|I|C|P|DO|DU|MO|MS|MU)([1-9]\d*)?')
+    parse = cat_re.findall(category)
 
-    if not category_parse:
+    if not parse:
         raise ValueError("Wrong box category")
 
-    n1, cat, n2 = category_parse[0]
+    n1, cat, n2 = parse[0]
     ordered = None
     segmentable = None
 
@@ -75,8 +76,10 @@ class Network:
         self.add_global_outputs = self.add_globals(self.global_outputs)
         self.remove_global_input = self.remove_global(self.global_inputs)
         self.remove_global_output = self.remove_global(self.global_outputs)
-        self.rewire_global_inputs = self.rewire_globals(self.global_inputs, 'set_input')
-        self.rewire_global_outputs = self.rewire_globals(self.global_outputs, 'set_output')
+        self.rewire_global_inputs = self.rewire_globals(self.global_inputs,
+                                                        'set_input')
+        self.rewire_global_outputs = self.rewire_globals(self.global_outputs,
+                                                         'set_output')
 
     def add_vertex(self, category, name, inputs, outputs, core, args={}):
 
@@ -211,7 +214,9 @@ class Network:
         for v in self.edges():
             f, t = v
             for (src, dst) in self.network.edge[f][t]['wires']:
-                print("\t", f + "[" + str(src) + "] -> " + t + "[" + str(dst) + "]")
+                print("\t",
+                      f + "[" + str(src) + "] ->",
+                      t + "[" + str(dst) + "]")
 
         print("\nGlobal inputs:")
         for (cname, blist) in self.global_inputs.items():
@@ -222,13 +227,6 @@ class Network:
         for (cname, blist) in self.global_outputs.items():
             for b, cid in blist:
                 print("\t", b + "[" + cname + "]")
-
-
-class BoxWrapper:
-
-    def __str__(self):
-        return "Box[in: " + str(self.inputs) + "\n\t\t      out: " + str(self.outputs) + "]"
-
 
 #class morphism:
 #    @staticmethod
