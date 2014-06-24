@@ -10,7 +10,20 @@ import communication as comm
 import time
 from multiprocessing import Process
 import random
+import copy
+import network as net
 
+def gen(inp):
+
+    continuation = copy.copy(inp)
+    continuation['start'] += 1
+
+    if inp['n'] == 0:
+        return (None, None)
+
+    continuation['n'] -= 1
+
+    return ({0: inp['start']}, continuation)
 
 def foo(a):
     st = time.time()
@@ -22,32 +35,22 @@ def foo(a):
     end = time.time()
     return {0: ((a, acc), st, end)}
 
+def rprint(cid, msg):
+    print(str(cid) + ":", msg)
 
-def gen(channel):
+init = []
+for i in range(0, 30, 10):
+    init.append(comm.DataMessage({'start': i, 'n': 10}))
+    init.append(comm.SegmentationMark(random.randint(1, 10)))
 
-    for i in range(300):
-        channel.wait_blocked()
-        if i > 1 and not (i % 10):
-            channel.put(comm.SegmentationMark(random.randint(1, 10)))
-            continue
-            #sleep(random.random() * 2)
-        channel.put(comm.DataMessage(i))
+P = net.Network("test_transductor")
 
-    channel.put(comm.SegmentationMark(0))
+P.add_vertex("1P", "Generator", ['init'], ['values'],  gen, {'initial_messages': init})
+P.add_vertex("1T", "Transductor", ['in'], ['out'],  foo, {'n_cores': 1})
+P.add_vertex("C1", "Printer", ['print'], [],  rprint)
 
-# Box definition
-box = comp.Transductor(1, 1, foo, 2)
+P.wire(('Generator', 'values'), ('Transductor', 'in'))
+P.wire(('Transductor', 'out'), ('Printer', 'print'))
 
-ch_gen = comm.Channel(box.input_ready)
-ch_out = comm.Channel()
-
-box.set_input(0, ch_gen)
-box.set_output(0, ch_out)
-
-# Input generator
-thread = Process(target=gen, args=(ch_gen,))
-thread.start()
-
-box.start()
-
-box.join()
+P.start()
+P.join()

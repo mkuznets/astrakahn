@@ -970,7 +970,7 @@ class Producer(Inductor):
 
 class Consumer(Box):
 
-    def __init__(self, n_inputs, core):
+    def __init__(self, n_inputs, n_outputs, core):
         # Inductor has a single input and one or more outputs
         super(Consumer, self).__init__(n_inputs, 0, core, None)
 
