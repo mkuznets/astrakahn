@@ -22,7 +22,7 @@ def box_spec(category):
     box_tuple = namedtuple("Box", "box n_inputs n_outputs ordered segmentable")
 
     # Type handling
-    cat_re = re.compile('([1-9]\d*)?(T|I|C|P|DO|DU|MO|MS|MU)([1-9]\d*)?')
+    cat_re = re.compile('([1-9]\d*)?(T|I|C|P|R|DO|DU|MO|MS|MU)([1-9]\d*)?')
     parse = cat_re.findall(category)
 
     if not parse:
@@ -58,6 +58,11 @@ def box_spec(category):
         box_class = comp.Producer
         assert(n1 and not n2)
 
+    elif cat == 'R':
+        box_class = comp.Repeater
+        assert(n1 and n2)
+        n_inputs, n_outputs = int(n2), int(n1)
+
     else:
         raise ValueError("Wrong box category")
 
@@ -81,7 +86,7 @@ class Network:
         self.rewire_global_outputs = self.rewire_globals(self.global_outputs,
                                                          'set_output')
 
-    def add_vertex(self, category, name, inputs, outputs, core, args={}):
+    def add_vertex(self, category, name, inputs, outputs, core=None, args={}):
 
         # Forbid identical names in the network
         if name in self.vertices():
@@ -99,7 +104,10 @@ class Network:
             args['ordered'] = ordered
             args['segmentable'] = segmentable
 
-        box = box_class(n_inputs, n_outputs, core, **args)
+        if core:
+            args['core'] = core
+
+        box = box_class(n_inputs, n_outputs, **args)
 
         inputs_map = channel_map(inputs)
         outputs_map = channel_map(outputs)
@@ -252,5 +260,17 @@ class Network:
 #
 #S = Solver()
 #print(S.particle_partition.__code__.co_varnames)
-#
-#quit()
+
+if __name__ == "__main__":
+
+    N = Network('test')
+
+    N.add_vertex("2I", "A", ['in'], ['out', 'out'], print)
+    N.add_vertex("1T", "B", ['in'], ['out'], print)
+
+    N.wire(('A', 'out'), ('B', 'in'))
+    N.rewire()
+
+    #for N.network.nodes():
+
+    N.debug_status()

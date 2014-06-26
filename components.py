@@ -26,7 +26,7 @@ class Vertex:
     Abstract AstraKahn vertex can be either a box or a syncroniser.
     """
 
-    def __init__(self, n_inputs, n_outputs, parameters=None):
+    def __init__(self, n_inputs, n_outputs):
 
         self.inputs = {i: None for i in range(n_inputs)}
         self.outputs = {i: None for i in range(n_outputs)}
@@ -990,3 +990,30 @@ class Consumer(Box):
 
                 if msg.end_of_stream():
                     n_eos += 1
+
+class Repeater(Vertex):
+
+    def __init__(self, n_inputs, n_outputs):
+        # Inductor has a single input and one or more outputs
+        super(Repeater, self).__init__(n_inputs, n_outputs)
+
+        self.process_functions = [self.process]
+
+    def process(self):
+
+        n_eos = 0
+        n_inputs = len(self.inputs)
+
+        while n_eos < n_inputs:
+            self.wait_any_input()
+            cids = self.ready_inputs()
+
+            for cid in cids:
+                msg = self.get_message(cid)
+
+                if msg.end_of_stream():
+                    n_eos += 1
+                else:
+                    self.put_message(msg)
+
+        self.put_message(msg)
