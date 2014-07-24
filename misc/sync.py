@@ -8,7 +8,7 @@ zip2 = {
                        'pattern': None,
                        'choice': None,
                        'exec': {'send': None,
-                                'assign': ('global', 'ma', '__this__'),
+                                'assign': ('store', 'ma', '__this__'),
                                 'goto': ['s1']}
                        }
                       ],
@@ -21,7 +21,7 @@ zip2 = {
                        'pattern': None,
                        'choice': None,
                        'exec': {'send': None,
-                                'assign': ('global', 'mb', '__this__'),
+                                'assign': ('store', 'mb', '__this__'),
                                 'goto': ['s2']}
                        }
                       ],

@@ -6,124 +6,89 @@ import os
 import sys
 import random
 from queue import Empty as Empty
+import collections
 
-max_n_init = int(sys.argv[1])
-max_n = max_n_init
-n = 0
+def square(i):
+    '1T'
+    return i * i
 
-pid = 0
+def plus(i):
+    '1T'
+    return i + i
 
-queue = Queue()
-result_queue = Queue()
-update = Event()
-update.clear()
-lock = Lock()
+##############################################
 
-stop = Event()
-stop.clear()
+class Box:
 
-#### Generate input messages #######
+    def __init__(self, core, inputs, outputs):
+        self.core = core
+        self.inputs = inputs
+        self.outputs = outputs
 
-def gen():
-    global queue
+    def protocol(self):
+        pass
 
-    for i in range(5000):
-        #if i > 1 and not (i % 10):
-            #sleep(random.random() * 2)
-        queue.put(i)
-    queue.put(None)
+    def handle_result(self):
+        pass
 
-thread = Process(target=gen)
-thread.start()
+##############################################
 
-#####################################
+BoxResult = collections.namedtuple('BoxResult', 'data out_id')
 
-def worker_exit(i):
-    global n, update, lock
+in_task = Queue()
+out_result = Queue()
 
-    #print(i[0], "stopped")
+def boxwrap(data, box):
+    result = box.core(data)
+    return BoxResult(result, box.out_id)
 
-    lock.acquire()
-    n -= 1
-    update.set()
-    lock.release()
+def pool_manager():
+    pool = Pool(processes=4)
 
-def worker(i):
-    global queue, result_queue, stop
-
-    cnt = 0
+    def reg_result(res):
+        out_result.put(res)
 
     while True:
-        try:
-            num = queue.get(timeout=1)
-            cnt += 1
+        box, data = in_task.get()
+        r = pool.apply_async(boxwrap, (data, box), callback=reg_result)
 
-            if num is None:
-                stop.set()
+if __name__ == '__main__':
+    #Box = collections.namedtuple('Box', 'core in_id out_id')
 
-            else:
-                #print(i, num)
+    channels = [collections.deque() for i in range(10)]
+    channels[0].append(10)
+    channels[0].append(100)
 
-                r = 0.0
-                for k in range(100000):
-                    r += num * 0.00001 * k
+    boxes = [Box(square, 0, 1), Box(plus, 1, 2)]
 
-        except Empty:
-            print("Stat", i, cnt)
-            return i
+    manager = Process(target=pool_manager)
+    manager.start()
 
-        if stop.is_set() and i != 1:
-            print("Stat", i, cnt)
-            return i
+    while True:
 
-def enqueue_worker():
-    global max_n, n, queue, lock, pid
+        empty_channels = True
 
-    while n < max_n:
-        lock.acquire()
-        n += 1
-        pid += 1
-        #print("New pid: ", pid)
-        lock.release()
+        for b in boxes:
+            if len(channels[b.in_id]) > 0:
+                m = channels[b.in_id].popleft()
+                print("Input", b, m)
+                in_task.put((b, m))
 
-        yield pid
+                empty_channels = False
 
-def foo(a):
-    return a * a
+        while True:
+            try:
+                res = out_result.get(block=empty_channels)
+                empty_channels = False
 
-class b:
-    def __init__(self):
-        self.f = foo
+                print("RES:", res)
+                channels[res.out_id].append(res.data)
 
-    def reg(self, r):
-        print(r)
+            except Empty:
+                break
 
-bb = b()
+    manager.join()
+    pool.close()
+    pool.join()
 
-pool = Pool(processes=4)
-pool.map_async(bb.f, [1, 2, 3, 4, 5], 1, bb.reg)
-
-
-pool.close()
-pool.join()
-
-quit()
-
-while True:
-    task_iter = enqueue_worker()
-    for x in task_iter:
-        pool.map_async(b.f, [1, 2, 3, 4, 5], 1, worker_exit)
-
-
-    max_n = min(queue.qsize(), max_n_init) #random.randint(1, 10)
-    update.wait()
-
-    if stop.is_set():
-        pool.terminate()
-        break
-
-    update.clear()
-
-pool.close()
-pool.join()
-#print("End")
+    quit()

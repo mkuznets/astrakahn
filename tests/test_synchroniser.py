@@ -23,7 +23,7 @@ def gen(inp):
 
     continuation['n'] -= 1
 
-    return ({0: inp['start'], 1: inp['start']}, continuation)
+    return ({0: inp['start']}, continuation)
 
 def rprint(cid, msg):
     print(str(cid) + ":", msg)
@@ -35,13 +35,13 @@ init = [comm.DataMessage({'start': 1, 'n': 4}),
 
 P = net.Network("test_reductor")
 
-P.add_vertex("2P", "G", ['init'], ['v', 'v'],  gen, {'initial_messages': init})
-P.add_vertex("2R1", "R", ['v'], ['a', 'b'])
-P.add_vertex("C2", "P", ['pa', 'pb'], [], rprint)
+P.add_vertex("2P", "G", ['init'], ['seq'],  gen, {'initial_messages': init})
+P.add_vertex("1S2", "S", ['a', 'b'], ['zipped'])
+P.add_vertex("C2", "P", ['p'], [], rprint)
 
 P.wire(('G', 'v'), ('R', 'v'))
 P.wire(('R', 'a'), ('P', 'pa'))
-P.wire(('R', 'b'), ('P', 'pb'))
+P.wire(('S', 'zipped'), ('P', 'p'))
 
 P.start()
 P.join()

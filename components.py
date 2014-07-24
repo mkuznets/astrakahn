@@ -18,7 +18,9 @@ import copy
 import time
 import math
 
-logging.basicConfig(stream=sys.stderr)  # , level=logging.DEBUG)
+import inspect
+
+logging.basicConfig(stream=sys.stderr)#, level=logging.DEBUG)
 
 
 class Vertex:
@@ -47,8 +49,13 @@ class Vertex:
 
         self.logger = logging.getLogger("Vertex")
 
+        self.ready_queue = None
+
     ## Communication methods.
     ##
+
+    def set_ready_queue(self):
+        self.ready_queue = Queue()
 
     def set_input(self, cid, channel):
         """
@@ -57,6 +64,10 @@ class Vertex:
         self.inputs[cid] = channel
         self.inputs[cid].ready_any = self.input_ready
         self.inputs[cid].input_cnt = self.input_cnt
+
+        if self.ready_queue is not None:
+            self.inputs[cid].ready_queue = self.ready_queue
+            self.inputs[cid].cid = cid
 
     def set_output(self, cid, channel):
         """
@@ -98,6 +109,13 @@ class Vertex:
     def wait_any_input(self):
         self.input_ready.wait()
 
+    def wait_inputs(self, channel_range=None):
+        if not channel_range:
+            channel_range = self.outputs.keys()
+
+        for cid in channel_range:
+            self.inputs[cid].ready.wait()
+
     def wait_blocked_outputs(self, channel_range=None):
         """
         Check availability of output channels and waits if any of the output
@@ -115,7 +133,8 @@ class Vertex:
             channel_range = range(len(self.outputs))
 
         for cid in channel_range:
-            self.outputs[cid].wait_blocked()
+            if self.outputs[cid].pressurized:
+                self.outputs[cid].wait_blocked()
 
     def get_message(self, cid, wait_outputs=True):
         """
@@ -237,15 +256,18 @@ class ProliferativeBox(Box):
         self.segmark_received = Event()
         self.segmark_received.clear()
 
-    def control_queue_reader(self):
+    def control_queue_reader(self, block=False):
 
         while True:
             try:
                 # Blocked if is_idle is set since the only thing to do
                 # in this state is waiting for finish feedback from merger.
-                control_msg = self.control.get(block=(self.is_idle))
+                control_msg = self.control.get(block=(self.is_idle or block))
 
                 ret = self.control_handler(control_msg)
+
+                block = False
+
                 if ret is None:
                     ret = 0
 
@@ -260,6 +282,8 @@ class ProliferativeBox(Box):
 
     def update_cores(self):
         n_active_cores = len(self.active_cores)
+
+        result = {'spawned': [], 'killed': []}
 
         if n_active_cores < self.n_cores:
             # Spawn more cores.
@@ -284,6 +308,7 @@ class ProliferativeBox(Box):
                 core_process.start()
                 self.logger.debug("NEW core: BID: %d, PID: %d", bid,
                                   core_process.pid)
+                result['spawned'].append(bid)
 
         elif n_active_cores > self.n_cores:
             # Kill excess cores.
@@ -300,6 +325,9 @@ class ProliferativeBox(Box):
                 bid = self.release_core_id()
                 self.input_buffers[bid].put({'msg': comm.SegmentationMark(0)})
                 self.logger.debug("Killing requested: BID: %d", bid)
+                result['killed'].append(bid)
+
+        return result
 
     def spawn(self, n):
         if n > 0:
@@ -333,11 +361,15 @@ class Transductor(ProliferativeBox):
     def __init__(self, n_inputs, n_outputs, core, n_cores=1):
         # Transductor has a single input and one or more outputs.
         assert(n_inputs == 1 and n_outputs >= 1)
-        super(Transductor, self).__init__(n_inputs, n_outputs, core, n_cores,
+        super(Transductor, self).__init__(2, n_outputs, core, n_cores,
                                           None, 1)
+
+        self.priority_input = comm.Channel()
+        self.set_input(1, self.priority_input)
 
         # Function for initial box running.
         self.process_functions = [self.router, self.merger]
+        self.free_cores = None
 
     def control_handler(self, control_msg):
         (bid, action, value) = control_msg
@@ -368,14 +400,23 @@ class Transductor(ProliferativeBox):
                 print("New number of cores:", value)
                 self.n_cores = value
                 self.update_cores()
+
+        elif action == 'done':
+            self.free_cores.add(bid)
+
         else:
             return -1
 
     def router(self):
         logger = logging.getLogger('router')
+        block_control_queue = False
 
         # Initial core spawning.
         self.update_cores()
+
+        self.free_cores = set(self.active_cores)
+
+        msg_buffer = collections.deque()
 
         # Input message counter within the segment i.e. between brakets.
         msg_n = 0
@@ -384,43 +425,70 @@ class Transductor(ProliferativeBox):
 
         while True:
             ## Control queue processing
-            ret = self.control_queue_reader()
+            ret = self.control_queue_reader(block_control_queue)
             if ret > 0:
                 return
 
-            ## Message processing
-            msg = self.get_message(cid=0)
+            if msg_buffer and self.free_cores:
+                while msg_buffer and self.free_cores:
+                    msg = msg_buffer.popleft()
+                    bid = self.free_cores.pop()
+                    self.input_buffers[bid].put({'msg': msg})
 
-            if msg.end_of_stream():
-                # Move to idle-state and broadcast the end-of-stream to all
-                # active cores
-                self.is_idle = True
-                for bid in self.active_cores:
-                    self.input_buffers[bid].put({'msg': msg, 'mid': mid})
+            if self.free_cores:
+                block_control_queue = False
+            else:
+                block_control_queue = True
                 continue
 
-            elif msg.is_segmark():
-                self.output_buffer.put({'type': 'segmark', 'depth': msg.n,
-                                        'mid': mid, 'msg_n': msg_n})
-                self.segmark_received.wait()
-                self.segmark_received.clear()
-                msg_n = 0
+            self.wait_any_input()
+            cids = self.ready_inputs()
+            cids.reverse()
+
+            for cid in cids:
+                msg = self.get_message(cid)
                 mid += 1
 
-            else:
-                # Select a suitable core for the new message.
-                # TODO: this problem is also need to be considered in terms
-                # of load and processing rate!
+                msg.mid = mid
 
-                # Less Busy First Algorithm
-                free_cores = {bid: self.input_buffers[bid].qsize()
-                              for bid in self.active_cores}
-                free_sort = sorted(free_cores, key=free_cores.get)
-                bid = free_sort[0]
+                if msg.end_of_stream():
+                    # End-of-Stream mark: move to idle-state and broadcast the
+                    # to all active cores
+                    self.is_idle = True
+                    for bid in self.active_cores:
+                        self.input_buffers[bid].put({'msg': msg})
+                    continue
 
-                self.input_buffers[bid].put({'msg': msg, 'mid': mid})
-                mid += 1
-                msg_n += 1
+                elif msg.is_segmark():
+                    # SegmentationMark: send it to merger and wait a confirmation. Reset
+                    # counter of messages within brakets.
+                    self.output_buffer.put({'type': 'segmark', 'msg': msg,
+                                            'msg_n': msg_n})
+                    self.segmark_received.wait()
+                    self.segmark_received.clear()
+                    msg_n = 0
+
+                else:
+                    # DataMessage
+
+                    if self.free_cores:
+                        bid = self.free_cores.pop()
+                        self.input_buffers[bid].put({'msg': msg})
+                        msg_n += 1
+                    else:
+                        if cid == 1:  # priority queue
+                            self.n_cores += 1
+                            update = self.update_cores()
+                            assert(len(update['spawned']) == 1)
+                            bid = update['spawned'][0]
+                            ##
+                            self.input_buffers[bid].put({'msg': msg})
+                            msg_n += 1
+                        else:
+                            msg_buffer.append(msg)
+                            block_control_queue = True
+                            break
+
 
     def core_wrapper(self, bid):
         logger = logging.getLogger('core_wrapper_#' + str(bid))
@@ -433,7 +501,7 @@ class Transductor(ProliferativeBox):
             msg = data['msg']
 
             if msg.end_of_stream():
-                logger.debug("End-of stream received, send feedback to merger "
+                logger.debug("End-of-Stream received, send feedback to merger "
                              "end exit. Good-bye!")
                 data['type'] = 'end-of-stream'
                 data['bid'] = bid
@@ -453,13 +521,14 @@ class Transductor(ProliferativeBox):
                              str(msg))
 
                 result_data = {'type': 'datamsg', 'result': result,
-                               'mid': data['mid'], 'bid': bid}
+                               'mid': msg.mid, 'bid': bid}
                 self.output_buffer.put(result_data)
 
     def merger(self):
         logger = logging.getLogger('merger')
 
-        msg_n = msg_n_full = segmark_mid = segmark_depth = 0
+        msg_n = msg_n_full = 0
+        deferred_segmark = None
 
         data_buffer = list()
         read_buffer = False
@@ -467,13 +536,13 @@ class Transductor(ProliferativeBox):
 
         ##########################################
 
-        def release_segmark(depth, mid):
+        def release_segmark(segmark):
             """
             Send out pending closing mark, reset segment markers and enable
             reading of data from the nternal queue.
             """
             nonlocal msg_n, read_buffer, data_buffer, wait_segment
-            handle_result(msg=comm.SegmentationMark(depth), mid=mid)
+            handle_result(msg=segmark, mid=segmark.mid)
             msg_n = 0
             read_buffer = True
             wait_segment = False
@@ -491,7 +560,7 @@ class Transductor(ProliferativeBox):
                     raise ValueError("Wrong output channels given")
 
                 for (cid, data) in result.items():
-                    output_msg = comm.DataMessage(data)
+                    output_msg = comm.DataMessage(data, mid)
                     self.put_message(output_msg, cid)
 
                 logger.info("Result for MID: %d: %s", mid,
@@ -502,6 +571,7 @@ class Transductor(ProliferativeBox):
                 if not isinstance(msg, comm.Message):
                     raise ValueError("Type of the given message is wrong!")
 
+                msg.mid = mid
                 self.put_message(msg)
 
                 logger.info("Result for MID: %d: %s", mid,
@@ -514,12 +584,10 @@ class Transductor(ProliferativeBox):
         ##########################################
 
         while True:
-            #self.wait_blocked_outputs()
-
             # Reading from internal buffer.
             if read_buffer and len(data_buffer) > 0:
 
-                if wait_segment and data_buffer[-1]['mid'] > segmark_mid:
+                if wait_segment and data_buffer[-1]['mid'] > deferred_segmark.mid:
                     read_buffer = False
                     logger.debug("Stop reading from buffer: too recent data.")
                     continue
@@ -529,13 +597,16 @@ class Transductor(ProliferativeBox):
 
                 if len(data_buffer) == 0:
                     read_buffer = False
-                    logger.debug("Stop reading from buffer: buffer's empty.")
+                    logger.debug("Stop reading from buffer: buffer is empty.")
 
             # Reading from the main control queue.
             else:
                 data = self.output_buffer.get()
 
-                if wait_segment and data.get('mid', 0) > segmark_mid:
+                if data['type'] == 'datamsg':
+                    self.control.put((data['bid'], 'done', -1))
+
+                if wait_segment and data.get('mid', 0) > deferred_segmark.mid:
                     data_buffer.append(data)
                     logger.debug("Add to buffer: MID: %d.", data['mid'])
                     continue
@@ -546,10 +617,9 @@ class Transductor(ProliferativeBox):
                 # the segmark until the end of the segment.
 
                 if msg_n == data['msg_n']:
-                    release_segmark(depth=data['depth'], mid=data['mid'])
+                    release_segmark(data['msg'])
                 else:
-                    segmark_depth = data['depth']
-                    segmark_mid = data['mid']
+                    deferred_segmark = data['msg']
                     msg_n_full = data['msg_n']
                     wait_segment = True
 
@@ -559,9 +629,9 @@ class Transductor(ProliferativeBox):
                 msg_n += 1
                 handle_result(result=data['result'], mid=data['mid'])
 
-                # The whole segment was processed - send the segmark.
                 if wait_segment and msg_n == msg_n_full:
-                    release_segmark(depth=segmark_depth, mid=segmark_mid)
+                    # The whole segment was processed - send the segmark.
+                    release_segmark(deferred_segmark)
 
             elif data['type'] == 'end-of-stream':
                 # Provide feedback to the router that the core has stopped.
@@ -991,6 +1061,7 @@ class Consumer(Box):
                 if msg.end_of_stream():
                     n_eos += 1
 
+
 class Repeater(Vertex):
 
     def __init__(self, n_inputs, n_outputs):
@@ -1017,3 +1088,145 @@ class Repeater(Vertex):
                     self.put_message(msg)
 
         self.put_message(msg)
+
+class Synchroniser(Vertex):
+    def __init__(self, n_inputs, n_outputs, sync, variables):
+        # Inductor has a single input and one or more outputs
+        super(Synchroniser, self).__init__(n_inputs, n_outputs)
+
+        # Synchroniser actively uses the ability to wait messages from the
+        # certain channels.
+        self.set_ready_queue()
+
+        self.process_functions = [self.protocol]
+
+        self.input_counter = {cid: 0 for cid in self.inputs}
+
+        self.sync_table = sync
+        self.state = 'start'
+
+        self.store_variables = {n: None for n in variables['store']}
+        self.state_variables = {n: None for n in variables['state']}
+
+        print(self.store_variables)
+
+    def get_message_from(self, channel_range=None):
+        if not channel_range:
+            channel_range = set(self.outputs.keys())
+        else:
+            channel_range = set(channel_range)
+
+        ready_channel = [cid for cid, n in self.input_counter.items()
+                         if cid in channel_range and n > 0]
+        if len(ready_channel) > 0:
+            cid = sample(ready_channel, 1)[0]
+            msg = self.get_message(cid)
+            self.input_counter[cid] -= 1
+            return (cid, msg)
+
+        while True:
+            cid = self.ready_queue.get()
+            if cid in channel_range:
+                msg = self.get_message(cid)
+                return (cid, msg)
+            else:
+                self.input_counter[cid] += 1
+
+    def select_state(self, state_range):
+        for s in state_range:
+            for cid_in, transitions in self.sync_table[s].items():
+                if self.input_counter[cid_in] > 0:
+                    # Input is ready.
+                    for t in transitions['group']:
+                        if t['exec']['send'] is None:
+                            # No output.
+                            return s
+                        else:
+                            # Check if the outputs channels are blocked.
+                            cids_out = t['exec']['send'].keys()
+                            if not self.is_output_blocked(cids_out):
+                                return s
+
+        # There's no state with immideately ready transition - select the state
+        # arbitrarily.
+        return sample(state_range, 1)[0]
+
+    def compute_int_exp(self, int_exp):
+        args = int_exp.__code__.co_varnames
+        actual_args = tuple(self.state_variables[n] for n in args)
+        return int_exp(*actual_args)
+
+    def msg_from_pattern(self, pattern, this):
+        result = {}
+        for p in pattern:
+            if p == '__this__':
+                result.update(this)
+            elif type(p) == dict:
+                computed = {n: self.compute_int_exp(exp) for n, exp in p}
+                result.update(computed)
+            elif type(p) == str:
+                if p not in self.store_variables:
+                    raise ValueError('Wrong store var id in the pattern')
+                result.update(self.store_variables[p])
+        return result
+
+    def protocol(self):
+
+        while True:
+            print(self.state)
+
+            current_state = self.sync_table[self.state]
+            channels = current_state.keys()
+
+            cid, msg = self.get_message_from(channels)
+            this = msg.content
+
+            current_group = current_state[cid]['group']
+
+            # TODO: must be done for all group in "compile time"!
+            transitions = sorted(current_group,
+                                   key=lambda i : 0 if i['type'] == 'on' else 1)
+
+            # Last transition to execute if all previous ones haven't.
+            if current_state[cid]['else'] is not None:
+                transitions.append(current_state[cid]['else'])
+
+            for t in transitions:
+                local_vars = []
+
+                # Check the predicate on the received message. If it does not
+                # hold, synchroniers checks next transition.
+                if t['segmark'] is not None:
+                    pass
+                elif t['pattern'] is not None:
+                    pass
+
+                # The message conforms with the predicate. Execute transition
+                # actions.
+                actions = t['exec']
+
+                if actions['assign']:
+                    for name, pattern in actions['assign']:
+                        if type(pattern) == tuple:
+                            # Store variable
+                            if name not in self.store_variables:
+                                raise ValueError("Undeclared store variable")
+                            self.store_variables[name] = self.msg_from_pattern(pattern, this)
+
+                        elif callable(pattern):
+                            # State variable
+                            if name not in self.state_variables:
+                                local_vars.append[name]
+                            self.state_variables[name] = compute_int_exp(pattern)
+
+                if actions['send']:
+                    pass
+
+                new_state = self.select_state(actions['goto'])
+                self.state = new_state
+
+                # Remove locally defined int-exp aliases from the global scope.
+                for name in local_vars:
+                    del self.state_variables[name]
+
+                break

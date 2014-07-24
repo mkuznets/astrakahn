@@ -8,7 +8,7 @@ class Channel:
     AstraKahn channel
     """
 
-    def __init__(self, depth=0, queue=None):
+    def __init__(self, depth=0, queue=None, pressurized=True):
         self.queue = Queue() if not queue else queue
 
         # The counter and `ready_any' flag are shared among all input channels
@@ -18,6 +18,9 @@ class Channel:
         # vertices and thus can be omitted for usual boxes.
         self.input_cnt = None
         self.ready_any = None
+
+        self.ready_queue = None
+        self.cid = None
 
         # Check if the channel involved as an input channel of one of the boxes
         self.input_sync = lambda: bool(self.ready_any) and bool(self.input_cnt)
@@ -35,6 +38,7 @@ class Channel:
         self.critical_pressure = 10
 
         self.me = Lock()
+        self.pressurized = pressurized
 
     def get(self, wait_ready=True):
         """
@@ -79,6 +83,9 @@ class Channel:
             self.unblocked.clear()
 
         self.queue.put(msg)
+
+        if self.ready_queue:
+            self.ready_queue.put(self.cid)
 
         # The only message in the channel - channel is ready for reading
         if p_before == 0:
@@ -146,11 +153,12 @@ class SegmentationMark(Message):
     where k is a parameter of the segmentation mark.
     """
 
-    def __init__(self, n):
+    def __init__(self, n, mid=0):
         # Number of opening and closing brakets.
         self.n = n
         self.empty = False
         self.content = self.__repr__()
+        self.mid = mid
 
     def is_segmark(self):
         return True
@@ -192,9 +200,10 @@ class DataMessage(Message):
     Regular data messages
     """
 
-    def __init__(self, content):
+    def __init__(self, content, mid=0):
         # TODO: not sure at the moment about the type of content.
         self.content = content
+        self.mid = mid
 
     def __repr__(self):
         return "msg(" + str(self.content) + ")"
