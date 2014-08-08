@@ -1,0 +1,55 @@
+# Auxiliary non-terminals:
+
+id_list : ID
+		| id_list COMMA ID
+
+kw_list : ID EQUAL NUMBER
+		| kw_list COMMA ID EQUAL NUMBER
+
+## Network
+
+net : nettype vertex_name LBRACKET config_params RBRACKET
+      LPAREN in_chans VBAR out_chans RPAREN decls CONNECT wiring END
+
+nettype       : NET | PURENET
+vertex_name   : ID
+config_params : kw_list
+
+in_chans  : id_list
+out_chans : id_list
+
+decls   : decl
+        | decls decl
+decl    : net | synchroniser | morphism
+
+## Morphism
+
+morphism   : MORPH LPAREN size RPAREN LBRACE morph_body RBRACE
+size       : ID | NUMBER
+morph_body : morph_list
+           | morph_list WHERE override_list
+morph_list : morph
+           | morph_list COMMA morph
+
+morph : split SLASH map_list SLASH join
+      | split_map_list SLASH join
+      | split SLASH map_join_list
+
+map_list       : map
+               | map_list COMMA map
+split_map_list : split_map
+               | split_map_list COMMA split_map
+map_join_list  : map_join
+               | map_join_list COMMA map_join
+split_map      : split SLASH map
+map_join       : map SLASH join
+
+map   : ID
+      | LBRACE NUMBER COLON RBRACE ID
+split : ID
+join  : ID
+
+override_list  : override
+               | override_list COMMA override
+override       : join SERIAL split EQUAL synch
+synch          : ID
