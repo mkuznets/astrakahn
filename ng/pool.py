@@ -10,9 +10,6 @@ import numpy as np
 
 import data_objects as data
 
-Task = collections.namedtuple('Task', 'core args')
-Result = collections.namedtuple('Result', 'action data')
-
 
 def core_wrapper(core, task_data):
 
@@ -27,7 +24,7 @@ def core_wrapper(core, task_data):
 
     result = core(*args)
 
-    return result
+    return ('send', {'vertex_id': vertex_id, 'output_content': result})
 
 
 class PoolManager:
@@ -42,21 +39,24 @@ class PoolManager:
     def start(self):
         self.pm.start()
 
+    def finish(self):
+        self.pm.join()
+
     def dispatch_result(self, result):
         self.out_queue.put(result)
 
     def enqueue(self, core, task_data):
-        self.in_queue.put(Task(core, task_data))
+        self.in_queue.put((core, task_data))
 
     def manager(self):
         pool = Pool(processes=self.nproc)
 
         while True:
             task = self.in_queue.get()
-            if type(task) != Task:
-                raise ValueError('Pool: wrong format of task.')
-
             r = pool.apply_async(core_wrapper, task, callback=self.dispatch_result)
+
+        pool.close()
+        pool.join()
 
 ###########################
 

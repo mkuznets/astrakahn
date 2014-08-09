@@ -1,5 +1,36 @@
 #!/usr/bin/env python3
 
+import collections
+
+
+class Channel:
+    def __init__(self, capasity=0):
+        self.queue = collections.deque()
+        self.capasity = capasity
+
+    def put(self, m):
+        if len(self.queue) >= self.capasity:
+            raise IndexError('Queue is full')
+        else:
+            self.queue.append(m)
+
+    def put_back(self, m):
+        self.queue.appendleft(m)
+
+    def get(self):
+        if len(self.queue) == 0:
+            raise IndexError('Queue is empty')
+        return self.queue.popleft()
+
+    def is_full(self):
+        return True if len(self.queue) >= self.capasity else False
+
+    def is_empty(self):
+        return True if len(self.queue) == 0 else False
+
+    def pressure(self):
+        return min(len(self.queue), self.capasity)
+
 
 class Message:
     """

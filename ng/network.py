@@ -6,6 +6,7 @@ import pool
 import communication as comm
 
 import re
+import time
 import collections
 import networkx as nx
 
@@ -18,6 +19,10 @@ class Network:
         self.network = nx.DiGraph()
         self.root = None
         self.node_id = 0
+
+        # Traversal schedule: only vertices that are ready for execution.
+        self.schedule = collections.deque()
+        self.trigger_ports = {}
 
     def node(self, node_id):
         return self.network.node[node_id]
@@ -43,6 +48,9 @@ class Network:
 
         return vertex_id
 
+    def is_in(self, node_id):
+        return (node_id in self.network)
+
     ##################################
 
     def set_root(self, node_id):
@@ -56,7 +64,7 @@ class Node:
 
         # Ports of the node itselt
         self.inputs = [{'name': n, 'queue': None} for n in inputs]
-        self.outputs = [{'name': n, 'to': []} for n in outputs]
+        self.outputs = [{'name': n, 'to': None} for n in outputs]
 
 
 class Net(Node):
@@ -125,15 +133,65 @@ class Transductor(Vertex):
 
         return {'vertex_id': self.id, 'args': [m.content]}
 
+    def commit(self, action, data):
+
+        if action == 'send':
+            # Send output messages.
+
+            if data['output_content'] is None:
+                # Empty output
+                pass
+            else:
+                for port_id, content in data['output_content'].items():
+                    out_msg = comm.DataMessage(content)
+                    self.outputs[port_id]['to'].append(out_msg)
+        else:
+            print(action, 'is not implemented yet')
+
+
+class Inductor(Vertex):
+
+    def __init__(self, name, inputs, outputs, core):
+        super(Transductor, self).__init__(name, inputs, outputs)
+        self.core = core
+
+    def fetch(self):
+        q = self.inputs[0]['queue']
+
+        if len(q) == 0:
+            return None
+
+        m = q.popleft()
+
+        return {'vertex_id': self.id, 'args': [m.content]}
+
+    def commit(self, action, data):
+
+        if action == 'send':
+            # Send output messages.
+
+            if data['output_content'] is None:
+                # Empty output
+                pass
+            else:
+                for port_id, content in data['output_content'].items():
+                    out_msg = comm.DataMessage(content)
+                    self.outputs[port_id]['to'].append(out_msg)
+        else:
+            print(action, 'is not implemented yet')
 
 ###########################
 
 # Box functions
 
-
 def foo(n):
+    time.sleep(3)
     n += 1
     return {0: n}
+
+def bar(n):
+    print(n)
+    return None
 
 ###########################
 
@@ -146,11 +204,11 @@ if __name__ == '__main__':
 
     # Components
     b1 = Transductor('b1', ['in1'], ['out1'], foo)
-    b2 = Transductor('b2', ['in2'], ['out2'], foo)
+    b2 = Transductor('b2', ['in2'], ['out2'], bar)
     n1 = Net('net', ['global_in'], ['global_out'], [b1, b1], "")
 
     # Statical wiring
-    b1.outputs[0] = [b2.inputs[0]['queue']]
+    b1.outputs[0]['to'] = b2.inputs[0]['queue']
 
     # Construct test network
 
@@ -164,7 +222,8 @@ if __name__ == '__main__':
     root_id = n.add_net(n, box_ids)
     n.set_root(root_id)
 
-    # Auxiliary counters
+    # Number of messages wainting for processing in queues.
+    # TODO: must be a class variable in Network.
     n_enqueued = 0
 
     # Initial message
@@ -173,38 +232,57 @@ if __name__ == '__main__':
 
     # Network execution
 
-    nodes = nx.dfs_postorder_nodes(n.network, n.root)
+    while True:
+        # Traversal
+        nodes = nx.dfs_postorder_nodes(n.network, n.root)
 
-    for node_id in nodes:
-        node = n.node(node_id)
+        for node_id in nodes:
+            node = n.node(node_id)
 
-        if node['type'] == 'net':
-            # Skip: we are interested in boxes only.
-            continue
-
-        elif node['type'] == 'vertex':
-            vertex = node['obj']
-
-            # Get data from input message.
-            data = vertex.fetch()
-
-            if data is None:
-                # Input appeared to be empty.
-                # TODO: it is better not to traverse nodes with empty input.
+            if node['type'] == 'net':
+                # Skip: we are interested in boxes only.
                 continue
 
-            # Send core function and data from input msg to processing pool.
-            # NOTE: this call MUST always be non-blocking.
-            pm.enqueue(vertex.core, data)
-            n_enqueued -= 1
+            elif node['type'] == 'vertex':
+                vertex = node['obj']
 
-    while True:
-        try:
-            # Wait results from the pool if there're no other messages in
-            # queues to process.
-            need_block = (n_enqueued == 0)
-            r = pm.out_queue.get(need_block)
-            print(r)
+                # Get data from input message.
+                data = vertex.fetch()
+                n_enqueued -= 1
 
-        except Empty:
-            break
+                if data is None:
+                    # Input appeared to be empty.
+                    # TODO: it is better not to traverse nodes with empty input.
+                    continue
+
+                # Send core function and data from input msg to processing pool.
+                # NOTE: this call MUST always be non-blocking.
+                pm.enqueue(vertex.core, data)
+
+        # Check for responses from processing pool.
+        while True:
+            try:
+                # Wait responses from the pool if there're no other messages in
+                # queues to process.
+                need_block = not (n_enqueued == 0)
+
+                # Vertex response.
+                response = pm.out_queue.get(need_block)
+                action, data = response
+
+                if not n.is_in(data['vertex_id']):
+                    raise ValueError('Vertex corresponsing to the response does'
+                                     'not exist.')
+
+                vertex = n.node(data['vertex_id'])['obj']
+
+                # Commit the result of computation, e.g. send it to destination
+                # vertices.
+                vertex.commit(action, data)
+                n_enqueued += 1
+
+            except Empty:
+                break
+
+    # Cleanup.
+    pm.finish()
