@@ -21,8 +21,8 @@ class Network:
         self.node_id = 0
 
         # Traversal schedule: only vertices that are ready for execution.
-        self.schedule = collections.deque()
-        self.trigger_ports = {}
+        self.schedule = None
+        self.trigger_ports = None
 
     def node(self, node_id):
         return self.network.node[node_id]
@@ -96,7 +96,7 @@ class Vertex(Node):
 
         # Initialize input queues.
         for p in self.inputs:
-            p['queue'] = collections.deque()
+            p['queue'] = comm.Channel()
 
         # Vertex function that is applied to the input messages.
         self.core = None
@@ -116,6 +116,14 @@ class Vertex(Node):
         raise NotImplemented('The commit method is not defined for the '
                              'abstract vertex.')
 
+    def is_ready(self):
+        '''
+        Check if the condition on channels are sufficient for the vertex to
+        start.
+        '''
+        raise NotImplemented('The `is_ready\' method is not defined for the '
+                             'abstract vertex.')
+
 
 class Transductor(Vertex):
 
@@ -124,12 +132,12 @@ class Transductor(Vertex):
         self.core = core
 
     def fetch(self):
-        q = self.inputs[0]['queue']
+        input_channel = self.inputs[0]['queue']
 
-        if len(q) == 0:
+        if input_channel.is_empty():
             return None
 
-        m = q.popleft()
+        m = input_channel.get()
 
         return {'vertex_id': self.id, 'args': [m.content]}
 
@@ -144,39 +152,7 @@ class Transductor(Vertex):
             else:
                 for port_id, content in data['output_content'].items():
                     out_msg = comm.DataMessage(content)
-                    self.outputs[port_id]['to'].append(out_msg)
-        else:
-            print(action, 'is not implemented yet')
-
-
-class Inductor(Vertex):
-
-    def __init__(self, name, inputs, outputs, core):
-        super(Transductor, self).__init__(name, inputs, outputs)
-        self.core = core
-
-    def fetch(self):
-        q = self.inputs[0]['queue']
-
-        if len(q) == 0:
-            return None
-
-        m = q.popleft()
-
-        return {'vertex_id': self.id, 'args': [m.content]}
-
-    def commit(self, action, data):
-
-        if action == 'send':
-            # Send output messages.
-
-            if data['output_content'] is None:
-                # Empty output
-                pass
-            else:
-                for port_id, content in data['output_content'].items():
-                    out_msg = comm.DataMessage(content)
-                    self.outputs[port_id]['to'].append(out_msg)
+                    self.outputs[port_id]['to'].put(out_msg)
         else:
             print(action, 'is not implemented yet')
 
@@ -227,7 +203,7 @@ if __name__ == '__main__':
     n_enqueued = 0
 
     # Initial message
-    b1.inputs[0]['queue'].append(comm.DataMessage(10))
+    b1.inputs[0]['queue'].put(comm.DataMessage(10))
     n_enqueued += 1
 
     # Network execution

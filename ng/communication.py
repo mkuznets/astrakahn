@@ -9,7 +9,7 @@ class Channel:
         self.capasity = capasity
 
     def put(self, m):
-        if len(self.queue) >= self.capasity:
+        if self.capasity and len(self.queue) >= self.capasity:
             raise IndexError('Queue is full')
         else:
             self.queue.append(m)
@@ -23,13 +23,21 @@ class Channel:
         return self.queue.popleft()
 
     def is_full(self):
-        return True if len(self.queue) >= self.capasity else False
+        return True if self.capasity and len(self.queue) >= self.capasity\
+            else False
 
     def is_empty(self):
         return True if len(self.queue) == 0 else False
 
+    def size(self):
+        return len(self.queue)
+
     def pressure(self):
-        return min(len(self.queue), self.capasity)
+        if not self.capasity:
+            # Unpressurised channel
+            return 0
+        else:
+            return min(len(self.queue), self.capasity)
 
 
 class Message:
