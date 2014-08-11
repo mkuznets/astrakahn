@@ -111,7 +111,8 @@ class Vertex(Node):
 
     def commit(self):
         '''
-        Handle the result received from processing pool.
+        Handle the result received from processing pool. Return the number of
+        output messages sent.
         '''
         raise NotImplemented('The commit method is not defined for the '
                              'abstract vertex.')
@@ -123,6 +124,54 @@ class Vertex(Node):
         '''
         raise NotImplemented('The `is_ready\' method is not defined for the '
                              'abstract vertex.')
+
+    def is_ready(self):
+        '''
+        Check if the condition on channels are sufficient for the vertex to
+        start.
+
+        NOTE: The very implementation applies for common types of vertices that
+        need (1) at least one message on one of the inputs (2) all outputs to
+        be available.
+        '''
+        # Check if there's an input message.
+        ready = False
+        for port in self.inputs:
+            if not port['queue'].is_empty():
+                ready |= True
+
+        if not ready:
+            return False
+
+        # Check availability of outputs.
+        for port in self.outputs:
+            assert port['to'] is not None
+            if port['to'].is_full():
+                return False
+
+        return True
+
+    ##
+    ## Methods that are specific for boxes
+    ## TODO: consider moving to separate class
+    ##
+
+    n_output_msgs = 0
+
+    def send_out(self, mapping):
+        for port_id, content in mapping.items():
+            out_msg = comm.DataMessage(content)
+            self.outputs[port_id]['to'].put(out_msg)
+            self.n_output_msgs += 1
+
+    def put_back(self, port_id, data):
+        self.inputs[0]['queue'].put_back(comm.DataMessage(data))
+        self.n_output_msgs += 1
+
+    def msg_count(self):
+        n = self.n_output_msgs
+        self.n_output_msgs = 0
+        return n
 
 
 class Transductor(Vertex):
@@ -141,33 +190,89 @@ class Transductor(Vertex):
 
         return {'vertex_id': self.id, 'args': [m.content]}
 
-    def commit(self, action, data):
-
-        if action == 'send':
+    def commit(self, response):
+        if response.action == 'send':
             # Send output messages.
-
-            if data['output_content'] is None:
-                # Empty output
-                pass
-            else:
-                for port_id, content in data['output_content'].items():
-                    out_msg = comm.DataMessage(content)
-                    self.outputs[port_id]['to'].put(out_msg)
+            n_output_msgs = self.send_out(response.out_mapping)
         else:
-            print(action, 'is not implemented yet')
+            print(response.action, 'is not implemented yet for ', vertex.name)
+
+        return self.msg_count()
+
+
+class Printer(Transductor):
+    '''
+    Temporary class of vertex, just for debugging
+    '''
+
+    def is_ready(self):
+        # Check if there's an input message.
+        ready = False
+        for port in self.inputs:
+            if not port['queue'].is_empty():
+                ready |= True
+
+        return ready
+
+
+class Inductor(Vertex):
+
+    def __init__(self, name, inputs, outputs, core):
+        super(Inductor, self).__init__(name, inputs, outputs)
+        self.core = core
+
+    def fetch(self):
+        input_channel = self.inputs[0]['queue']
+
+        if input_channel.is_empty():
+            return None
+
+        m = input_channel.get()
+
+        return {'vertex_id': self.id, 'args': [m.content]}
+
+    def commit(self, response):
+
+        if response.action == 'continue':
+
+            cont = response.aux_data
+            # Put the continuation back to the input queue
+            self.put_back(0, cont)
+
+            self.send_out(response.out_mapping)
+
+        elif response.action == 'terminate':
+            n_output_msgs = self.send_out(response.out_mapping)
+
+        else:
+            print(response.action, 'is not implemented yet for ', vertex.name)
+
+        return self.msg_count()
 
 ###########################
 
+import copy
+
 # Box functions
 
-def foo(n):
-    time.sleep(3)
-    n += 1
-    return {0: n}
+def printer(d):
+    print(d)
+    return ('send', {}, None)
 
-def bar(n):
-    print(n)
-    return None
+def foo(n):
+    n += 1
+    return ('send', {0: {'value': n, 'n': 10}}, None)
+
+def cnt(s):
+    if s['n'] == 0:
+        return ('terminate', {}, None)
+
+    time.sleep(2)
+    cont = copy.copy(s)
+    cont['value'] += 1
+    cont['n'] -= 1
+
+    return ('continue', {0: s['value']}, cont)
 
 ###########################
 
@@ -180,11 +285,13 @@ if __name__ == '__main__':
 
     # Components
     b1 = Transductor('b1', ['in1'], ['out1'], foo)
-    b2 = Transductor('b2', ['in2'], ['out2'], bar)
+    b2 = Inductor('b2', ['in2'], ['out2'], cnt)
+    b3 = Printer('b3', ['in3'], ['out3'], printer)
     n1 = Net('net', ['global_in'], ['global_out'], [b1, b1], "")
 
     # Statical wiring
     b1.outputs[0]['to'] = b2.inputs[0]['queue']
+    b2.outputs[0]['to'] = b3.inputs[0]['queue']
 
     # Construct test network
 
@@ -194,6 +301,7 @@ if __name__ == '__main__':
 
     box_ids.append(n.add_vertex(b1))
     box_ids.append(n.add_vertex(b2))
+    box_ids.append(n.add_vertex(b3))
 
     root_id = n.add_net(n, box_ids)
     n.set_root(root_id)
@@ -222,40 +330,42 @@ if __name__ == '__main__':
             elif node['type'] == 'vertex':
                 vertex = node['obj']
 
-                # Get data from input message.
-                data = vertex.fetch()
-                n_enqueued -= 1
-
-                if data is None:
-                    # Input appeared to be empty.
-                    # TODO: it is better not to traverse nodes with empty input.
+                # Check if the vertex can be executed.
+                # TODO: it would be better if the condition was never true.
+                if not vertex.is_ready():
                     continue
+
+                # Get input message.
+                data = vertex.fetch()
 
                 # Send core function and data from input msg to processing pool.
                 # NOTE: this call MUST always be non-blocking.
                 pm.enqueue(vertex.core, data)
+                n_enqueued -= 1
 
         # Check for responses from processing pool.
         while True:
             try:
                 # Wait responses from the pool if there're no other messages in
                 # queues to process.
-                need_block = not (n_enqueued == 0)
+                need_block = (n_enqueued == 0)
+
+                if need_block:
+                    print("NOTE: no messages in queues, wait for some result")
 
                 # Vertex response.
                 response = pm.out_queue.get(need_block)
-                action, data = response
 
-                if not n.is_in(data['vertex_id']):
+                if not n.is_in(response.vertex_id):
                     raise ValueError('Vertex corresponsing to the response does'
                                      'not exist.')
 
-                vertex = n.node(data['vertex_id'])['obj']
+                vertex = n.node(response.vertex_id)['obj']
 
                 # Commit the result of computation, e.g. send it to destination
                 # vertices.
-                vertex.commit(action, data)
-                n_enqueued += 1
+                n_outputs = vertex.commit(response)
+                n_enqueued += n_outputs
 
             except Empty:
                 break

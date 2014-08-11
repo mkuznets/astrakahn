@@ -10,6 +10,7 @@ import numpy as np
 
 import data_objects as data
 
+Result = collections.namedtuple('Result', 'vertex_id action out_mapping aux_data')
 
 def core_wrapper(core, task_data):
 
@@ -22,9 +23,9 @@ def core_wrapper(core, task_data):
         if type(args[i]) == data.ref:
             args[i] = data.obj(args[i], data.to_numpy(args[i]))
 
-    result = core(*args)
+    action, out_mapping, aux_data = core(*args)
 
-    return ('send', {'vertex_id': vertex_id, 'output_content': result})
+    return Result(vertex_id, action, out_mapping, aux_data)
 
 
 class PoolManager:
