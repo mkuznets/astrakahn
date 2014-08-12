@@ -54,13 +54,25 @@ class Message:
 
 class SegmentationMark(Message):
 
-    def __init__(self, n, mid=0):
+    def __init__(self, n):
         # Number of opening and closing brakets.
         self.n = n
         self.content = self.__repr__()
 
     def is_segmark(self):
         return True
+
+    def plus(self):
+        if self.n > 0:
+            self.n += 1
+        self.content = self.__repr__()
+
+    def minus(self):
+        if self.n > 0:
+            self.n -= 1
+        else:
+            raise ValueError('Negative sequence depth.')
+        self.content = self.__repr__()
 
     def end_of_stream(self):
         return True if (self.n == 0) else False

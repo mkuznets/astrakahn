@@ -156,13 +156,27 @@ class Vertex(Node):
     ## TODO: consider moving to separate class
     ##
 
+    # Flag indicating that the box is processing another message.
+    busy = False
+
     n_output_msgs = 0
 
-    def send_out(self, mapping):
+    def send_out(self, mapping, wrap=True, count=True):
         for port_id, content in mapping.items():
-            out_msg = comm.DataMessage(content)
+
+            if wrap:
+                out_msg = comm.DataMessage(content)
+            else:
+                out_msg = content
+
             self.outputs[port_id]['to'].put(out_msg)
-            self.n_output_msgs += 1
+
+            if count:
+                self.n_output_msgs += 1
+
+    def send_to_all(self, msg):
+        mapping = {i: msg for i in range(len(self.outputs))}
+        self.send_out(mapping, wrap=False, count=False)
 
     def put_back(self, port_id, data):
         self.inputs[0]['queue'].put_back(comm.DataMessage(data))
@@ -188,7 +202,13 @@ class Transductor(Vertex):
 
         m = input_channel.get()
 
-        return {'vertex_id': self.id, 'args': [m.content]}
+        if m.is_segmark():
+            # Special behaviour for segmentation marks.
+            self.send_to_all(m)
+            return None
+
+        else:
+            return {'vertex_id': self.id, 'args': [m.content]}
 
     def commit(self, response):
         if response.action == 'send':
@@ -204,6 +224,16 @@ class Printer(Transductor):
     '''
     Temporary class of vertex, just for debugging
     '''
+
+    def fetch(self):
+        input_channel = self.inputs[0]['queue']
+
+        if input_channel.is_empty():
+            return None
+
+        m = input_channel.get()
+
+        return {'vertex_id': self.id, 'args': [m.content]}
 
     def is_ready(self):
         # Check if there's an input message.
@@ -229,7 +259,14 @@ class Inductor(Vertex):
 
         m = input_channel.get()
 
-        return {'vertex_id': self.id, 'args': [m.content]}
+        if m.is_segmark():
+            # Special behaviour for segmentation marks.
+            m.plus()
+            self.send_to_all(m)
+            return None
+
+        else:
+            return {'vertex_id': self.id, 'args': [m.content]}
 
     def commit(self, response):
 
@@ -267,7 +304,7 @@ def cnt(s):
     if s['n'] == 0:
         return ('terminate', {}, None)
 
-    time.sleep(2)
+    #time.sleep(2)
     cont = copy.copy(s)
     cont['value'] += 1
     cont['n'] -= 1
@@ -311,8 +348,11 @@ if __name__ == '__main__':
     n_enqueued = 0
 
     # Initial message
+    b1.inputs[0]['queue'].put(comm.DataMessage(100))
+    b1.inputs[0]['queue'].put(comm.SegmentationMark(3))
     b1.inputs[0]['queue'].put(comm.DataMessage(10))
-    n_enqueued += 1
+    b1.inputs[0]['queue'].put(comm.SegmentationMark(2))
+    n_enqueued += 4
 
     # Network execution
 
@@ -330,6 +370,9 @@ if __name__ == '__main__':
             elif node['type'] == 'vertex':
                 vertex = node['obj']
 
+                if vertex.busy:
+                    continue
+
                 # Check if the vertex can be executed.
                 # TODO: it would be better if the condition was never true.
                 if not vertex.is_ready():
@@ -338,12 +381,18 @@ if __name__ == '__main__':
                 # Get input message.
                 data = vertex.fetch()
 
+                if data is None:
+                    continue
+
                 # Send core function and data from input msg to processing pool.
                 # NOTE: this call MUST always be non-blocking.
                 pm.enqueue(vertex.core, data)
                 n_enqueued -= 1
 
+                vertex.busy = True
+
         # Check for responses from processing pool.
+
         while True:
             try:
                 # Wait responses from the pool if there're no other messages in
@@ -351,7 +400,7 @@ if __name__ == '__main__':
                 need_block = (n_enqueued == 0)
 
                 if need_block:
-                    print("NOTE: no messages in queues, wait for some result")
+                    print("NOTE: waiting result")
 
                 # Vertex response.
                 response = pm.out_queue.get(need_block)
@@ -365,6 +414,7 @@ if __name__ == '__main__':
                 # Commit the result of computation, e.g. send it to destination
                 # vertices.
                 n_outputs = vertex.commit(response)
+                vertex.busy = False
                 n_enqueued += n_outputs
 
             except Empty:
