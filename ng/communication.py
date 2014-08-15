@@ -22,6 +22,12 @@ class Channel:
             raise IndexError('Queue is empty')
         return self.queue.popleft()
 
+    def is_space_for(self, n):
+        if not self.capasity:
+            return True
+
+        return True if len(self.queue) + n <= self.capasity else False
+
     def is_full(self):
         return True if self.capasity and len(self.queue) >= self.capasity\
             else False

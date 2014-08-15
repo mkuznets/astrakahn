@@ -66,6 +66,14 @@ class Node:
         self.inputs = [{'name': n, 'queue': None} for n in inputs]
         self.outputs = [{'name': n, 'to': None} for n in outputs]
 
+    @property
+    def n_inputs(self):
+        return len(self.inputs)
+
+    @property
+    def n_outputs(self):
+        return len(self.outputs)
+
 
 class Net(Node):
     def __init__(self, name, inputs, outputs, nodes, wiring_expr):
@@ -101,6 +109,8 @@ class Vertex(Node):
         # Vertex function that is applied to the input messages.
         self.core = None
 
+    # TODO: the method is run on the assumption that is_ready() returned True,
+    # this creates undesirable logical dependence between these methods.
     def fetch(self):
         '''
         Fetch required number of message(s) from input queue(s) and return the
@@ -134,7 +144,7 @@ class Vertex(Node):
         need (1) at least one message on one of the inputs (2) all outputs to
         be available.
         '''
-        # Check if there's an input message.
+        # Test if there's an input message.
         ready = False
         for port in self.inputs:
             if not port['queue'].is_empty():
@@ -143,11 +153,9 @@ class Vertex(Node):
         if not ready:
             return False
 
-        # Check availability of outputs.
-        for port in self.outputs:
-            assert port['to'] is not None
-            if port['to'].is_full():
-                return False
+        # Test availability of outputs.
+        if not self.output_available():
+            return False
 
         return True
 
@@ -159,9 +167,7 @@ class Vertex(Node):
     # Flag indicating that the box is processing another message.
     busy = False
 
-    n_output_msgs = 0
-
-    def send_out(self, mapping, wrap=True, count=True):
+    def send_out(self, mapping, wrap=True):
         for port_id, content in mapping.items():
 
             if wrap:
@@ -171,21 +177,26 @@ class Vertex(Node):
 
             self.outputs[port_id]['to'].put(out_msg)
 
-            if count:
-                self.n_output_msgs += 1
+    def send_to_range(self, msg, rng, wrap=True):
+        mapping = {i: msg for i in rng}
+        self.send_out(mapping, wrap)
 
-    def send_to_all(self, msg):
-        mapping = {i: msg for i in range(len(self.outputs))}
-        self.send_out(mapping, wrap=False, count=False)
+    def send_to_all(self, msg, wrap=False):
+        rng = range(self.n_outputs)
+        self.send_to_range(msg, rng, wrap)
+
+    def output_available(self, rng=None, space_needed=1):
+        if rng is None:
+            rng = range(self.n_outputs)
+
+        for port_id in rng:
+            if not self.outputs[port_id]['to'].is_space_for(space_needed):
+                return False
+
+        return True
 
     def put_back(self, port_id, data):
         self.inputs[0]['queue'].put_back(comm.DataMessage(data))
-        self.n_output_msgs += 1
-
-    def msg_count(self):
-        n = self.n_output_msgs
-        self.n_output_msgs = 0
-        return n
 
 
 class Transductor(Vertex):
@@ -213,11 +224,9 @@ class Transductor(Vertex):
     def commit(self, response):
         if response.action == 'send':
             # Send output messages.
-            n_output_msgs = self.send_out(response.out_mapping)
+            self.send_out(response.out_mapping)
         else:
             print(response.action, 'is not implemented yet for ', vertex.name)
-
-        return self.msg_count()
 
 
 class Printer(Transductor):
@@ -228,6 +237,8 @@ class Printer(Transductor):
     def fetch(self):
         input_channel = self.inputs[0]['queue']
 
+        # TODO: To revise: strange sanity check: fetch() is run only if there
+        # ARE msgs in the input channel.
         if input_channel.is_empty():
             return None
 
@@ -279,12 +290,83 @@ class Inductor(Vertex):
             self.send_out(response.out_mapping)
 
         elif response.action == 'terminate':
-            n_output_msgs = self.send_out(response.out_mapping)
+            self.send_out(response.out_mapping)
 
         else:
             print(response.action, 'is not implemented yet for ', vertex.name)
 
-        return self.msg_count()
+
+class DyadicReductor(Vertex):
+
+    def __init__(self, name, inputs, outputs, core):
+        super(DyadicReductor, self).__init__(name, inputs, outputs)
+        self.core = core
+
+    def is_ready(self):
+
+        ## Test input availability.
+        #
+
+        # Reduction start: 2 messages from both channel are needed.
+        for port in self.inputs:
+            if port['queue'].is_empty():
+                return False
+
+        ## Test output availability.
+        #
+        if not self.output_available(range(1, self.n_outputs)):
+            return False
+
+        # Test the 1st output separately since it must have enough space
+        # for segmentation mark.
+        if not self.output_available((0,), space_needed=2):
+            return False
+
+        return True
+
+    def fetch(self):
+        init_terms = self.inputs[0]['queue']
+        other_terms = self.inputs[1]['queue']
+
+        # Sanity check. TODO: revise.
+        if init_terms.is_empty() or other_terms.is_empty():
+            return None
+
+        # First reduction operard:
+        term_a = init_terms.get()
+        if term_a.is_segmark():
+            # Special behaviour for segmentation marks.
+            term_a.plus()
+            self.send_to_range(term_a, range(1, self.n_outputs), wrap=False)
+            return None
+
+        # Second reduction operand
+        term_b = other_terms.get()
+        if term_b.is_segmark():
+            # Special behaviour for segmentation marks.
+            self.send_out({0: term_a}, wrap=False)
+
+            if term_b.n != 1:
+                if term_b.n > 1:
+                    term_b.minus()
+                self.send_out({0: term_b}, wrap=False)
+
+        # Input messages are not segmarks: pass them to coordinator.
+        return {'vertex_id': self.id, 'args': [term_a.content, term_b.content]}
+
+    def commit(self, response):
+
+        if response.action == 'partial':
+            # First output channel cannot be the destination of partial result.
+            assert(0 not in response.out_mapping)
+            self.send_out(response.out_mapping)
+
+            # Put partial reduction result to the first input channel for
+            # further reduction.
+            self.put_back(0, response.aux_data)
+
+        else:
+            print(response.action, 'is not implemented yet for ', vertex.name)
 
 ###########################
 
@@ -300,6 +382,10 @@ def foo(n):
     n += 1
     return ('send', {0: {'value': n, 'n': 10}}, None)
 
+def plus(a, b):
+    c = a + b
+    return ('partial', {}, c)
+
 def cnt(s):
     if s['n'] == 0:
         return ('terminate', {}, None)
@@ -313,6 +399,25 @@ def cnt(s):
 
 ###########################
 
+def n_enqueued(nodes):
+    '''
+    Count the number of messages waiting for processing in inputs queues of the
+    given nodes.
+    It's temporary and expensive alternative to network schedule.
+    '''
+    n_msgs = 0
+
+    for node_id in nodes:
+        node = n.node(node_id)
+        if node['type'] != 'vertex':
+            continue
+        vertex = node['obj']
+
+        for q in vertex.inputs:
+            n_msgs += q['queue'].size()
+
+    return n_msgs
+
 
 if __name__ == '__main__':
 
@@ -323,12 +428,14 @@ if __name__ == '__main__':
     # Components
     b1 = Transductor('b1', ['in1'], ['out1'], foo)
     b2 = Inductor('b2', ['in2'], ['out2'], cnt)
+    bR = DyadicReductor('bR', ['inits', 'terms'], ['out'], plus)
     b3 = Printer('b3', ['in3'], ['out3'], printer)
     n1 = Net('net', ['global_in'], ['global_out'], [b1, b1], "")
 
     # Statical wiring
     b1.outputs[0]['to'] = b2.inputs[0]['queue']
-    b2.outputs[0]['to'] = b3.inputs[0]['queue']
+    b2.outputs[0]['to'] = bR.inputs[1]['queue']
+    bR.outputs[0]['to'] = b3.inputs[0]['queue']
 
     # Construct test network
 
@@ -339,26 +446,24 @@ if __name__ == '__main__':
     box_ids.append(n.add_vertex(b1))
     box_ids.append(n.add_vertex(b2))
     box_ids.append(n.add_vertex(b3))
+    box_ids.append(n.add_vertex(bR))
 
     root_id = n.add_net(n, box_ids)
     n.set_root(root_id)
 
     # Number of messages wainting for processing in queues.
     # TODO: must be a class variable in Network.
-    n_enqueued = 0
 
     # Initial message
-    b1.inputs[0]['queue'].put(comm.DataMessage(100))
-    b1.inputs[0]['queue'].put(comm.SegmentationMark(3))
-    b1.inputs[0]['queue'].put(comm.DataMessage(10))
-    b1.inputs[0]['queue'].put(comm.SegmentationMark(2))
-    n_enqueued += 4
+    b1.inputs[0]['queue'].put(comm.DataMessage(1))
+    b1.inputs[0]['queue'].put(comm.SegmentationMark(1))
+    bR.inputs[0]['queue'].put(comm.DataMessage(0))
 
     # Network execution
 
     while True:
         # Traversal
-        nodes = nx.dfs_postorder_nodes(n.network, n.root)
+        nodes = list(nx.dfs_postorder_nodes(n.network, n.root))
 
         for node_id in nodes:
             node = n.node(node_id)
@@ -382,13 +487,12 @@ if __name__ == '__main__':
                 data = vertex.fetch()
 
                 if data is None:
+                    # Input messages happend to not require the box execution.
                     continue
 
                 # Send core function and data from input msg to processing pool.
                 # NOTE: this call MUST always be non-blocking.
                 pm.enqueue(vertex.core, data)
-                n_enqueued -= 1
-
                 vertex.busy = True
 
         # Check for responses from processing pool.
@@ -397,7 +501,7 @@ if __name__ == '__main__':
             try:
                 # Wait responses from the pool if there're no other messages in
                 # queues to process.
-                need_block = (n_enqueued == 0)
+                need_block = (n_enqueued(nodes) == 0)
 
                 if need_block:
                     print("NOTE: waiting result")
@@ -413,9 +517,8 @@ if __name__ == '__main__':
 
                 # Commit the result of computation, e.g. send it to destination
                 # vertices.
-                n_outputs = vertex.commit(response)
+                vertex.commit(response)
                 vertex.busy = False
-                n_enqueued += n_outputs
 
             except Empty:
                 break
