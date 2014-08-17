@@ -13,7 +13,7 @@ net : nettype vertex_name LBRACKET config_params RBRACKET
 
 nettype       : NET | PURENET
 vertex_name   : ID
-config_params : kw_list
+config_params : id_list
 
 in_chans  : id_list
 out_chans : id_list
@@ -25,15 +25,20 @@ decl    : net | synchroniser | morphism
 ## Morphism
 
 morphism   : MORPH LPAREN size RPAREN LBRACE morph_body RBRACE
-size       : ID | NUMBER
+size       : ID
 morph_body : morph_list
            | morph_list WHERE override_list
 morph_list : morph
            | morph_list COMMA morph
 
-morph : split SLASH map_list SLASH join
-      | split_map_list SLASH join
-      | split SLASH map_join_list
+
+morhp : split_map_join
+	  | splitmap_join
+	  | split_mapjoin
+
+split_map_join : split SLASH map_list SLASH join
+splitmap_join  : split_map_list SLASH join
+split_mapjoin  : split SLASH map_join_list
 
 map_list       : map
                | map_list COMMA map
@@ -45,7 +50,7 @@ split_map      : split SLASH map
 map_join       : map SLASH join
 
 map   : ID
-      | LBRACE NUMBER COLON RBRACE ID
+      | NUMBER COLON ID
 split : ID
 join  : ID
 
