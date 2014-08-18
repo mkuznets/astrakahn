@@ -2,6 +2,7 @@
 
 import os.path
 import sys
+import collections
 sys.path.insert(0, '../..')
 
 if sys.version_info[0] >= 3:
@@ -24,7 +25,7 @@ t_STAR          = r'\*'
 t_BACKSLASH     = r'\\'
 
 t_COMMA         = r','
-t_VBAR      = r'\|'
+t_VBAR          = r'\|'
 t_LE            = r'<'
 t_GE            = r'>'
 t_LPAREN        = r'\('
@@ -90,24 +91,45 @@ precedence = (
 #    ('left', 'LOR', 'LAND', 'BOR', 'BAND', 'BXOR'),
 #    ('left', 'LE', 'GE', 'GEQ', 'LEQ', 'EQ', 'NEQ'),
 #    ('nonassoc', 'NOT'),
-#    ('left', 'MULT', 'DIVIDE', 'MOD', 'SHL', 'SHR'),
+    ('left', 'PARALLEL'),
+    ('left', 'SERIAL'),
 #    ('right', 'UMINUS'),
 )
 
 net_ast = None
 
+Net = collections.namedtuple('Net', 'type name config_params inputs outputs '
+                                    'decls wiring')
+
+Morphism = collections.namedtuple('Morphism', 'name size body override')
+
+Override = collections.namedtuple('Override', 'join split synch')
+
+Map = collections.namedtuple('Map', 'box n_inputs')
+Join = collections.namedtuple('Join', 'box')
+Split = collections.namedtuple('Split', 'box')
+
+SplitMap = collections.namedtuple('SplitMap', 'split map')
+MapJoin = collections.namedtuple('MapJoin', 'map join')
+
+Morph_S_M_J = collections.namedtuple('Morph_S_M_J', 'splip map join')
+Morph_SM_J = collections.namedtuple('Morph_SM_J', 'splitmap join')
+Morph_S_MJ = collections.namedtuple('Morph_S_MJ', 'split mapjoin')
+
+
 def p_start(p):
     '''
     root : net
     '''
-    net_ir = p[1]
+    global net_ast
+    net_ast = p[1]
 
 def p_net(p):
     '''
-    net : nettype vertex_name LBRACKET config_params RBRACKET\
+    net : nettype vertex_name config_params\
           LPAREN in_chans VBAR out_chans RPAREN decls CONNECT wiring END
     '''
-    print(list(p))
+    p[0] = Net(p[1], p[2], p[3], p[5], p[7], p[9], p[11])
 
 def p_nettype(p):
     '''
@@ -124,9 +146,10 @@ def p_vertex_name(p):
 
 def p_config_params(p):
     '''
-    config_params : id_list
+    config_params : LBRACKET id_list RBRACKET
+                  | empty
     '''
-    p[0] = p[1]
+    p[0] = p[1] if len(p) > 2 else []
 
 def p_id_list(p):
     '''
@@ -170,9 +193,13 @@ def p_synchroniser(p):
 
 def p_morphism(p):
     '''
-    morphism : MORPH LPAREN size RPAREN LBRACE morph_body RBRACE
+    morphism : MORPH morph_name LPAREN size RPAREN LBRACE morph_body RBRACE
     '''
-    p[0] = None
+    p[0] = Morphism(p[2], p[4], p[7]['decls'], p[7]['override'])
+
+def p_morph_name(p):
+    '''morph_name : ID'''
+    p[0] = p[1]
 
 def p_size(p):
     '''size : ID'''
@@ -183,12 +210,7 @@ def p_morph_body(p):
     morph_body : morph_list
                | morph_list WHERE override_list
     '''
-    body = {'morphs': p[1]}
-
-    if len(2) == 4:
-        body['override'] = p[3]
-
-    p[0] = body
+    p[0] = {'decls': p[1], 'override': p[3] if len(p) == 4 else None}
 
 def p_morph_list(p):
     '''
@@ -208,21 +230,21 @@ def p_morph(p):
 
 def p_split_map_join(p):
     '''
-    split_map_join : split SLASH map_list SLASH join
+    split_map_join : split SLASH LBRACKET map_list RBRACKET SLASH join
     '''
-    p[0] = ('s-m-j', p[1], p[3], p[5])
+    p[0] = Morph_S_M_J(p[1], p[4], p[7])
 
 def p_splitmap_join(p):
     '''
-    splitmap_join : split_map_list SLASH join
+    splitmap_join : LBRACKET split_map_list RBRACKET SLASH join
     '''
-    p[0] = ('sm-j', p[1], p[3])
+    p[0] = Morph_SM_J(p[2], p[5])
 
 def p_split_mapjoin(p):
     '''
-    split_mapjoin : split SLASH map_join_list
+    split_mapjoin : split SLASH LBRACKET map_join_list RBRACKET
     '''
-    p[0] = ('s-mj', p[1], p[3])
+    p[0] = Morph_S_MJ(p[1], p[4])
 
 def p_map_list(p):
     '''
@@ -247,11 +269,11 @@ def p_map_join_list(p):
 
 def p_split_map(p):
     '''split_map : split SLASH map'''
-    p[0] = (p[1], p[3])
+    p[0] = SplitMap(p[1], p[3])
 
 def p_map_join(p):
     '''map_join : map SLASH join'''
-    p[0] = (p[1], p[3])
+    p[0] = MapJoin(p[1], p[3])
 
 def p_map(p):
     '''
@@ -259,17 +281,17 @@ def p_map(p):
         | NUMBER COLON ID
     '''
     if len(p) == 2:
-        p[0] = (p[1], 1)
+        p[0] = Map(p[1], 1)
     else:
-        p[0] = (p[3], p[1])
+        p[0] = Map(p[3], p[1])
 
 def p_split(p):
     '''split : ID'''
-    p[0] = p[1]
+    p[0] = Split(p[1])
 
 def p_join(p):
     '''join : ID'''
-    p[0] = p[1]
+    p[0] = Join(p[1])
 
 def p_override_list(p):
     '''
@@ -280,18 +302,55 @@ def p_override_list(p):
 
 def p_override(p):
     '''override : join SERIAL split EQUAL synch'''
-    p[0] = (p[1], p[3], p[5])
+    p[0] = Override(p[1], p[3], p[5])
 
 def p_synch(p):
     '''synch : ID'''
     p[0] = p[1]
 
 def p_wiring(p):
-    # TODO
     '''
-    wiring : empty
+    wiring : wire_exp
+           | empty
     '''
     p[0] = p[1]
+
+##############
+
+
+def p_wire_exp(p):
+    # TODO
+    '''
+    wire_exp : wire_exp PARALLEL wire_exp
+             | wire_exp SERIAL wire_exp
+             | factor
+    '''
+    print('wireexp', list(p))
+    if len(p) == 2:
+        p[0] = p[1]
+    else:
+        p[0] = (p[1], p[2], p[3])
+
+def p_factor(p):
+    '''
+    factor : base STAR
+           | base BACKSLASH
+           | base
+    '''
+    print('factor', list(p))
+    p[0] = (p[1], p[2]) if len(p) == 3 else (p[1], None)
+
+
+def p_base(p):
+    '''
+    base : ID
+         | LPAREN wire_exp RPAREN
+    '''
+    print('base', list(p))
+    p[0] = p[1] if len(p) == 2 else p[2]
+
+
+################
 
 def p_empty(p):
     'empty :'
@@ -299,7 +358,7 @@ def p_empty(p):
 
 def p_error(p):
     if p:
-        print("Syntax error at '%s'" % p.value)
+        print("Syntax error at '%s'" % p.value, p.lineno, ':', p.lexpos)
     else:
         print("Syntax error at EOF")
 
@@ -322,4 +381,5 @@ with open(filename, 'r') as source_file:
 
 yacc.parse(source_code)
 
-print(net_ast)
+import printer
+printer.rprint(net_ast)

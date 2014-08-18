@@ -24,7 +24,8 @@ decl    : net | synchroniser | morphism
 
 ## Morphism
 
-morphism   : MORPH LPAREN size RPAREN LBRACE morph_body RBRACE
+morphism   : MORPH morph_name LPAREN size RPAREN LBRACE morph_body RBRACE
+morph_name : ID
 size       : ID
 morph_body : morph_list
            | morph_list WHERE override_list
@@ -36,9 +37,9 @@ morhp : split_map_join
 	  | splitmap_join
 	  | split_mapjoin
 
-split_map_join : split SLASH map_list SLASH join
-splitmap_join  : split_map_list SLASH join
-split_mapjoin  : split SLASH map_join_list
+split_map_join : split SLASH LBRACKET map_list RBRACKET SLASH join
+splitmap_join  : LBRACKET split_map_list RBRACKET SLASH join
+split_mapjoin  : split SLASH LBRACKET map_join_list RBRACKET
 
 map_list       : map
                | map_list COMMA map
