@@ -1,3 +1,4 @@
+'''
 net pic (in | out)
   net pic_step (in | out)
     morph calc_density (N) { }
@@ -14,3 +15,4 @@ net pic (in | out)
   end
 connect
   (pic_step)*
+'''

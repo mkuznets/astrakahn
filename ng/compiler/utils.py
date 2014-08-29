@@ -43,3 +43,32 @@ def rprint(obj, offset=0):
 
     else:
         print(str(obj))
+
+
+def print_ast_dot(ast):
+
+    print('digraph AST {')
+    #print("\tnode [shape=plaintext];")
+
+    for n in ast.nodes():
+        properties = {}
+
+        attrs = ast.node[n]
+        if attrs['type'] == 'node':
+            properties['shape'] = 'box'
+
+        properties['label'] = attrs['value'].replace("\\", "\\\\")
+
+        if 'inputs' in attrs or 'outputs' in attrs:
+            inputs = ', '.join(name for i, name in attrs['inputs'].items())
+            outputs = ', '.join(name for i, name in attrs['outputs'].items())
+            properties['label'] += "\\nInputs: {}\\nOutputs: {}".format(inputs, outputs)
+
+        properties_str = ', '.join('{}="{}"'.format(k, v) for k, v in properties.items())
+
+        print("\t{} [{}];".format(n, properties_str))
+
+    for e in ast.edges():
+        print("\t{} -> {}".format(*e))
+
+    print('}')

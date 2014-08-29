@@ -63,8 +63,8 @@ class Node:
         self.name = name
 
         # Ports of the node itselt
-        self.inputs = [{'name': n, 'queue': None} for n in inputs]
-        self.outputs = [{'name': n, 'to': None} for n in outputs]
+        self.inputs = [{'name': n, 'queue': None, 'node_id': None} for n in inputs]
+        self.outputs = [{'name': n, 'to': None, 'node_id': None} for n in outputs]
 
     @property
     def n_inputs(self):
@@ -208,18 +208,15 @@ class Transductor(Vertex):
     def fetch(self):
         input_channel = self.inputs[0]['queue']
 
-        if input_channel.is_empty():
-            return None
-
         m = input_channel.get()
 
         if m.is_segmark():
-            # Special behaviour for segmentation marks.
+            # Special behaviour: sengmentation marks are sent through.
             self.send_to_all(m)
             return None
 
         else:
-            return {'vertex_id': self.id, 'args': [m.content]}
+            return [m.content]
 
     def commit(self, response):
         if response.action == 'send':
@@ -244,7 +241,7 @@ class Printer(Transductor):
 
         m = input_channel.get()
 
-        return {'vertex_id': self.id, 'args': [m.content]}
+        return [m.content]
 
     def is_ready(self):
         # Check if there's an input message.
@@ -277,7 +274,7 @@ class Inductor(Vertex):
             return None
 
         else:
-            return {'vertex_id': self.id, 'args': [m.content]}
+            return [m.content]
 
     def commit(self, response):
 
@@ -352,7 +349,7 @@ class DyadicReductor(Vertex):
                 self.send_out({0: term_b}, wrap=False)
 
         # Input messages are not segmarks: pass them to coordinator.
-        return {'vertex_id': self.id, 'args': [term_a.content, term_b.content]}
+        return [term_a.content, term_b.content]
 
     def commit(self, response):
 
@@ -433,9 +430,15 @@ if __name__ == '__main__':
     n1 = Net('net', ['global_in'], ['global_out'], [b1, b1], "")
 
     # Statical wiring
+
     b1.outputs[0]['to'] = b2.inputs[0]['queue']
+    b1.outputs[0]['vertex_id'] = b2.id
+
     b2.outputs[0]['to'] = bR.inputs[1]['queue']
+    b2.outputs[0]['vertex_id'] = bR.id
+
     bR.outputs[0]['to'] = b3.inputs[0]['queue']
+    bR.outputs[0]['vertex_id'] = b3.id
 
     # Construct test network
 
@@ -475,24 +478,31 @@ if __name__ == '__main__':
             elif node['type'] == 'vertex':
                 vertex = node['obj']
 
+                # 1. Test if the box is already running. If it is, skip it.
                 if vertex.busy:
                     continue
 
-                # Check if the vertex can be executed.
-                # TODO: it would be better if the condition was never true.
+                # 2. Test if the conditions on channels are sufficient for the
+                #    box execution. Is they're not, skip the box.
                 if not vertex.is_ready():
                     continue
 
-                # Get input message.
-                data = vertex.fetch()
+                # 3. Get input message and form a list of arguments for the
+                #    box function to apply.
+                args = vertex.fetch()
 
-                if data is None:
-                    # Input messages happend to not require the box execution.
+                if args is None:
+                    # 3.1 Input message were handled in fetch(), box execution
+                    #     is not required.
                     continue
 
-                # Send core function and data from input msg to processing pool.
-                # NOTE: this call MUST always be non-blocking.
-                pm.enqueue(vertex.core, data)
+                # 4. Assemble all the data needed for the task to send in
+                #    the processing pool.
+                task_data = {'vertex_id': vertex.id, 'args': args}
+
+                # 5. Send box function and task data to processing pool.
+                #    NOTE: this call MUST always be non-blocking.
+                pm.enqueue(vertex.core, task_data)
                 vertex.busy = True
 
         # Check for responses from processing pool.
@@ -503,8 +513,8 @@ if __name__ == '__main__':
                 # queues to process.
                 need_block = (n_enqueued(nodes) == 0)
 
-                if need_block:
-                    print("NOTE: waiting result")
+                #if need_block:
+                #    print("NOTE: waiting result")
 
                 # Vertex response.
                 response = pm.out_queue.get(need_block)

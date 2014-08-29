@@ -1,9 +1,10 @@
+'''
 net pic_step (in | out)
 
   net bar (g | p)
     morph calc (N) {div / [mover_one, mover_two] / joiner}
   connect
-    (calc || k .. a* || c\)*
+    (calc || k .. a* || c\)*..lff
   end
 
   morph move_particles (N) {div / [mover_one / joiner, mover_two / joiner]}
@@ -11,3 +12,4 @@ net pic_step (in | out)
 connect
 
 end
+'''

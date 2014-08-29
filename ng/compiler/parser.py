@@ -1,102 +1,14 @@
 #!/usr/bin/env python3
 
-import os.path
-import sys
 import collections
-sys.path.insert(0, '../..')
-
-if sys.version_info[0] >= 3:
-    raw_input = input
-
-keywords = ['NET', 'PURENET', 'CONNECT', 'END', 'MORPH', 'WHERE']
-
-tokens = keywords + [
-    'ID', 'NUMBER', 'SERIAL', 'PARALLEL', 'STAR', 'BACKSLASH', 'COMMA', 'VBAR',
-    'LE', 'GE', 'LPAREN', 'RPAREN', 'LBRACKET', 'RBRACKET', 'SLASH', 'EQUAL',
-    'LBRACE', 'RBRACE', 'COLON'
-]
-
-# Tokens
-
-# net operators
-t_SERIAL        = r'\.\.'
-t_PARALLEL      = r'\|\|'
-t_STAR          = r'\*'
-t_BACKSLASH     = r'\\'
-
-t_COMMA         = r','
-t_VBAR          = r'\|'
-t_LE            = r'<'
-t_GE            = r'>'
-t_LPAREN        = r'\('
-t_RPAREN        = r'\)'
-t_LBRACKET      = r'\['
-t_RBRACKET      = r'\]'
-t_SLASH         = r'/'
-t_EQUAL         = r'='
-t_LBRACE        = r'{'
-t_RBRACE        = r'}'
-t_COLON         = r':'
-
-keywords_map = {k.lower(): k for k in keywords}
-
-
-def t_ID(t):
-    r'[A-Za-z_][\w_]*'
-    t.type = keywords_map.get(t.value, 'ID')
-    return t
-
-
-def t_NUMBER(t):
-    r'\d+'
-    t.value = int(t.value)
-    return t
-
-t_ignore = " \t"
-
-
-def t_newline(t):
-    r'\n+'
-    t.lexer.lineno += t.value.count("\n")
-
-
-def t_error(t):
-    print("Illegal character '%s'" % t.value[0])
-    t.lexer.skip(1)
-
-# Build the lexer
-import ply.lex as lex
-lex.lex()
-
-
-#with open('tests/reg.t', 'r') as sync_file:
-#    sync_code = sync_file.read()
-
-# Give the lexer some input
-#lexer = lex.lex()
-#lexer.input(sync_code)
-#
-## Tokenize
-#while True:
-#    tok = lexer.token()
-#    if not tok:
-#        break      # No more input
-#    print(tok)
-#
-#quit()
-
-# Parsing rules
+import networkx as nx
 
 precedence = (
-#    ('left', 'LOR', 'LAND', 'BOR', 'BAND', 'BXOR'),
-#    ('left', 'LE', 'GE', 'GEQ', 'LEQ', 'EQ', 'NEQ'),
-#    ('nonassoc', 'NOT'),
     ('left', 'PARALLEL'),
     ('left', 'SERIAL'),
-#    ('right', 'UMINUS'),
 )
 
-net_ast = None
+ast = None
 
 Net = collections.namedtuple('Net', 'type name config_params inputs outputs '
                                     'decls wiring')
@@ -112,7 +24,7 @@ Split = collections.namedtuple('Split', 'box')
 SplitMap = collections.namedtuple('SplitMap', 'split map')
 MapJoin = collections.namedtuple('MapJoin', 'map join')
 
-Morph_S_M_J = collections.namedtuple('Morph_S_M_J', 'splip map join')
+Morph_S_M_J = collections.namedtuple('Morph_S_M_J', 'split map join')
 Morph_SM_J = collections.namedtuple('Morph_SM_J', 'splitmap join')
 Morph_S_MJ = collections.namedtuple('Morph_S_MJ', 'split mapjoin')
 
@@ -121,8 +33,9 @@ def p_start(p):
     '''
     root : net
     '''
-    global net_ast
-    net_ast = p[1]
+    global ast
+    ast = p[1]
+
 
 def p_net(p):
     '''
@@ -131,6 +44,7 @@ def p_net(p):
     '''
     p[0] = Net(p[1], p[2], p[3], p[5], p[7], p[9], p[11])
 
+
 def p_nettype(p):
     '''
     nettype : NET
@@ -138,11 +52,13 @@ def p_nettype(p):
     '''
     p[0] = p[1]
 
+
 def p_vertex_name(p):
     '''
     vertex_name : ID
     '''
     p[0] = p[1]
+
 
 def p_config_params(p):
     '''
@@ -151,6 +67,7 @@ def p_config_params(p):
     '''
     p[0] = p[1] if len(p) > 2 else []
 
+
 def p_id_list(p):
     '''
     id_list : ID
@@ -158,11 +75,13 @@ def p_id_list(p):
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
+
 def p_in_chans(p):
     '''
     in_chans : id_list
     '''
     p[0] = p[1]
+
 
 def p_out_chans(p):
     '''
@@ -170,12 +89,22 @@ def p_out_chans(p):
     '''
     p[0] = p[1]
 
+
 def p_decls(p):
     '''
-    decls : decl
-          | decls decl
+    decls : decls_list
+          | empty
+    '''
+    p[0] = p[1]
+
+
+def p_decls_list(p):
+    '''
+    decls_list : decl
+               | decls_list decl
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
+
 
 def p_decl(p):
     '''
@@ -185,11 +114,13 @@ def p_decl(p):
     '''
     p[0] = p[1]
 
+
 def p_synchroniser(p):
     '''
     synchroniser : ID
     '''
     p[0] = p[1]
+
 
 def p_morphism(p):
     '''
@@ -197,13 +128,16 @@ def p_morphism(p):
     '''
     p[0] = Morphism(p[2], p[4], p[7]['decls'], p[7]['override'])
 
+
 def p_morph_name(p):
     '''morph_name : ID'''
     p[0] = p[1]
 
+
 def p_size(p):
     '''size : ID'''
     p[0] = p[1]
+
 
 def p_morph_body(p):
     '''
@@ -211,6 +145,7 @@ def p_morph_body(p):
                | morph_list WHERE override_list
     '''
     p[0] = {'decls': p[1], 'override': p[3] if len(p) == 4 else None}
+
 
 def p_morph_list(p):
     '''
@@ -228,11 +163,13 @@ def p_morph(p):
     '''
     p[0] = p[1]
 
+
 def p_split_map_join(p):
     '''
     split_map_join : split SLASH LBRACKET map_list RBRACKET SLASH join
     '''
     p[0] = Morph_S_M_J(p[1], p[4], p[7])
+
 
 def p_splitmap_join(p):
     '''
@@ -240,11 +177,13 @@ def p_splitmap_join(p):
     '''
     p[0] = Morph_SM_J(p[2], p[5])
 
+
 def p_split_mapjoin(p):
     '''
     split_mapjoin : split SLASH LBRACKET map_join_list RBRACKET
     '''
     p[0] = Morph_S_MJ(p[1], p[4])
+
 
 def p_map_list(p):
     '''
@@ -253,12 +192,14 @@ def p_map_list(p):
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
+
 def p_split_map_list(p):
     '''
     split_map_list : split_map
                    | split_map_list COMMA split_map
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
+
 
 def p_map_join_list(p):
     '''
@@ -267,13 +208,16 @@ def p_map_join_list(p):
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
+
 def p_split_map(p):
     '''split_map : split SLASH map'''
     p[0] = SplitMap(p[1], p[3])
 
+
 def p_map_join(p):
     '''map_join : map SLASH join'''
     p[0] = MapJoin(p[1], p[3])
+
 
 def p_map(p):
     '''
@@ -285,13 +229,16 @@ def p_map(p):
     else:
         p[0] = Map(p[3], p[1])
 
+
 def p_split(p):
     '''split : ID'''
     p[0] = Split(p[1])
 
+
 def p_join(p):
     '''join : ID'''
     p[0] = Join(p[1])
+
 
 def p_override_list(p):
     '''
@@ -300,36 +247,62 @@ def p_override_list(p):
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
+
 def p_override(p):
     '''override : join SERIAL split EQUAL synch'''
     p[0] = Override(p[1], p[3], p[5])
+
 
 def p_synch(p):
     '''synch : ID'''
     p[0] = p[1]
 
+
 def p_wiring(p):
     '''
-    wiring : wire_exp
+    wiring : wiring_ast
            | empty
     '''
     p[0] = p[1]
 
-##############
+###############################################################################
+#
+# Parse wiring expression
+#
+
+wiring_ast = nx.DiGraph()
+cnt = 0
 
 
-def p_wire_exp(p):
-    # TODO
+def p_wiring_ast(p):
+    '''wiring_ast : wiring_exp'''
+    global wiring_ast
+    p[0] = wiring_ast
+
+    # Alloc new graph for further AST.
+    wiring_ast = nx.DiGraph()
+
+
+def p_wiring_exp(p):
     '''
-    wire_exp : wire_exp PARALLEL wire_exp
-             | wire_exp SERIAL wire_exp
-             | factor
+    wiring_exp : wiring_exp PARALLEL wiring_exp
+               | wiring_exp SERIAL wiring_exp
+               | factor
     '''
-    print('wireexp', list(p))
+    global cnt, wiring_ast
+
     if len(p) == 2:
+        # Identifier/expression/unary operator
         p[0] = p[1]
     else:
-        p[0] = (p[1], p[2], p[3])
+        # Binary operator
+        wiring_ast.add_node(cnt, {'type': 'operator', 'value': p[2]})
+        wiring_ast.add_edge(cnt, p[1])
+        wiring_ast.add_edge(cnt, p[3])
+
+        p[0] = cnt
+        cnt += 1
+
 
 def p_factor(p):
     '''
@@ -337,49 +310,98 @@ def p_factor(p):
            | base BACKSLASH
            | base
     '''
-    print('factor', list(p))
-    p[0] = (p[1], p[2]) if len(p) == 3 else (p[1], None)
+    global cnt, wiring_ast
+
+    if len(p) == 2:
+        # Identifier/expression
+        p[0] = p[1]
+    else:
+        # Unary operator
+        wiring_ast.add_node(cnt, {'type': 'operator', 'value': p[2]})
+        wiring_ast.add_edge(cnt, p[1])
+        p[0] = cnt
+        cnt += 1
 
 
 def p_base(p):
     '''
-    base : ID
-         | LPAREN wire_exp RPAREN
+    base : operand
+         | LPAREN wiring_exp RPAREN
     '''
-    print('base', list(p))
-    p[0] = p[1] if len(p) == 2 else p[2]
+    global cnt, wiring_ast
+
+    if len(p) == 2:
+        # New operand.
+        p[0] = p[1]
+
+    else:
+        # Parenthesized expression.
+        p[0] = p[2]
 
 
-################
+def p_operand(p):
+    '''
+    operand : ID
+            | LE naming VBAR ID VBAR naming GE
+    '''
+    global cnt, wiring_ast
+
+    if len(p) == 2:
+        # Operand as an identifier.
+        wiring_ast.add_node(cnt, {'type': 'node', 'value': p[1]})
+        p[0] = cnt
+        cnt += 1
+
+    else:
+        # Operand in renaming brackets.
+        wiring_ast.add_node(cnt, {'type': 'node', 'value': p[4],
+                                  'inputs': p[2], 'outputs': p[6]})
+        p[0] = cnt
+        cnt += 1
+
+
+def p_naming(p):
+    '''
+    naming : id_list
+    '''
+    p[0] = {i: name for i, name in enumerate(p[1])}
+
+#
+###############################################################################
+
 
 def p_empty(p):
     'empty :'
     p[0] = ''
+
 
 def p_error(p):
     if p:
         print("Syntax error at '%s'" % p.value, p.lineno, ':', p.lexpos)
     else:
         print("Syntax error at EOF")
+    quit()
 
+###############################################################################
+
+import sys
+import inspect
 import ply.yacc as yacc
-yacc.yacc()
-
-if len(sys.argv) < 2:
-    print('USAGE: {} source'.format(sys.argv[0]))
-    quit()
-
-filename = sys.argv[1]
-
-if not os.path.isfile(filename):
-    print('Source file does not exist.')
-    quit()
+import lexer
 
 
-with open(filename, 'r') as source_file:
-    source_code = source_file.read()
+def build():
+    tokens = lexer.tokens
+    return yacc.yacc(debug=0)
 
-yacc.parse(source_code)
 
-import printer
-printer.rprint(net_ast)
+def print_grammar():
+    rules = []
+
+    for name, obj in inspect.getmembers(sys.modules[__name__]):
+        if inspect.isfunction(obj) and name[:2] == 'p_'\
+                and obj.__doc__ is not None:
+            rule = str(obj.__doc__).strip()
+            rules.append(rule)
+
+    print("\n".join(rules))
