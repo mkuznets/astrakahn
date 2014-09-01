@@ -277,6 +277,8 @@ cnt = 0
 def p_wiring_ast(p):
     '''wiring_ast : wiring_exp'''
     global wiring_ast
+
+    wiring_ast.graph['root'] = cnt - 1
     p[0] = wiring_ast
 
     # Alloc new graph for further AST.
@@ -348,7 +350,8 @@ def p_operand(p):
 
     if len(p) == 2:
         # Operand as an identifier.
-        wiring_ast.add_node(cnt, {'type': 'node', 'value': p[1]})
+        wiring_ast.add_node(cnt, {'type': 'node', 'value': p[1],
+                                  'inputs': {}, 'outputs': {}})
         p[0] = cnt
         cnt += 1
 

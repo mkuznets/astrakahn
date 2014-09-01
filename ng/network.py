@@ -5,22 +5,30 @@ from queue import Empty as Empty
 import pool
 import communication as comm
 
+import os
+import sys
 import re
 import time
 import collections
 import networkx as nx
+
+sys.path.insert(0, os.path.dirname(__file__) + './compiler')
+import utils
 
 ##############################################
 
 
 class Network:
 
-    def __init__(self):
+    def __init__(self, cores):
         self.network = nx.DiGraph()
         self.root = None
         self.node_id = 0
 
-        # Traversal schedule: only vertices that are ready for execution.
+        # All the functions of boxes.
+        self.cores = cores
+
+        # Execution schedule: only vertices that are ready for execution.
         self.schedule = None
         self.trigger_ports = None
 
@@ -51,11 +59,113 @@ class Network:
     def is_in(self, node_id):
         return (node_id in self.network)
 
-    ##################################
-
     def set_root(self, node_id):
         self.root = node_id
 
+    ##################################
+
+    ##
+    ## Network construction methods.
+    ##
+
+    def build(self, node):
+
+        if node is None:
+            return
+
+        assert(utils.is_namedtuple(node))
+
+        node_type = type(node).__name__
+
+        ## Traverse in depth first.
+        #
+        if node_type == 'Net':
+            for d in node.decls:
+                self.build_network(d)
+
+        ## Adding net constituents.
+        #
+        if node_type == 'Net':
+            vertices = self.build_net(node.wiring)
+            net = Net(node.name, node.inputs, node.outputs)
+
+            gp = self.get_global_ports(vertices)
+
+            self.add_net(net, vertices)
+
+        elif node_type == 'Morphism':
+            # Handle morph declaration
+            # Add morphism net
+            pass
+
+    def build_net(self, ast):
+
+        vertices = []
+
+        # Wiring AST: postorder traversal
+        ids = nx.dfs_postorder_nodes(ast, ast.graph['root'])
+        stack = []
+
+        for nid in ids:
+            ast_node = ast.node[nid]
+
+            if ast_node['type'] == 'node':
+                if ast_node['value'] not in self.cores:
+                    raise ValueError('Wrong box name.')
+
+                box_core = self.cores[ast_node['value']]
+
+                # Box properties and constructor.
+                box = utils.box(box_core.__doc__)
+
+                # Generate names of ports.
+                inputs = [(ast_node['inputs'].get(i, '_{}'.format(i)))
+                          for i in range(box.n_inputs)]
+                outputs = [(ast_node['outputs'].get(i, '_{}'.format(i)))
+                           for i in range(box.n_outputs)]
+
+                # Create vertex object and insert to network.
+                vertex = box.box(ast_node['value'], inputs, outputs, box_core)
+                vertex_id = self.add_vertex(vertex)
+
+                stack.append([vertex_id])
+                vertices.append(vertex_id)
+
+            elif ast_node['type'] == 'operator':
+                rhs = stack.pop()
+                lhs = stack.pop()
+
+                print("Apply {} on {} and {}".format(ast_node['value'], lhs, rhs))
+
+                stack.append(lhs + rhs)
+
+        return vertices
+
+    def get_global_ports(self, vertices):
+
+        global_ports = {'in': {} , 'out': {}}
+
+        for vertex_id in vertices:
+            vertex = self.node(vertex_id)['obj']
+
+            for p in vertex.inputs:
+                if p['node_id'] is None:
+                    if p['name'] in global_ports['in']:
+                        global_ports['in'][p['name']].append((vertex_id, p))
+                    else:
+                        global_ports['in'][p['name']] = [(vertex_id, p)]
+
+            for p in vertex.outputs:
+                if p['node_id'] is None:
+                    if p['name'] in global_ports['out']:
+                        global_ports['out'][p['name']].append((vertex_id, p))
+                    else:
+                        global_ports['out'][p['name']] = [(vertex_id, p)]
+
+        return global_ports
+
+    def flatten_network(self, vertices):
+        pass
 
 class Node:
     def __init__(self, name, inputs, outputs):
@@ -76,26 +186,8 @@ class Node:
 
 
 class Net(Node):
-    def __init__(self, name, inputs, outputs, nodes, wiring_expr):
+    def __init__(self, name, inputs, outputs):
         super(Net, self).__init__(name, inputs, outputs)
-
-        # Mapping from channel names to ports. It is filled during the
-        # netlist construction.
-        self.ports_naming = {}
-
-        # Mapping from nodes' names to ids in global network graph.
-        self.nodes_mapping = self.extract_nodes_mapping(nodes)
-
-        # Netlist of the net is built from the wiring expression and a list of
-        # net constituents objects.
-        self.netlist = self.build_netlist(nodes, wiring_expr)
-        self.wire_id = 0
-
-    def build_netlist(self, nodes, wiring_expr):
-        pass
-
-    def extract_nodes_mapping(self, nodes):
-        pass
 
 
 class Vertex(Node):
@@ -364,6 +456,26 @@ class DyadicReductor(Vertex):
 
         else:
             print(response.action, 'is not implemented yet for ', vertex.name)
+
+
+class Copier(Vertex):
+
+    def __init__(self, name, inputs, outputs, core=None):
+        super(Copier, self).__init__(name, inputs, outputs)
+
+    def fetch(self):
+        for i, port in self.inputs:
+            if len(port['queue']) > 0:
+                input_channel = port['queue']
+                break
+
+        m = input_channel.get()
+
+        self.send_to_all(m)
+        return None
+
+    def commit(self, response):
+        pass
 
 ###########################
 

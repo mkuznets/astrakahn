@@ -7,39 +7,10 @@ import inspect
 import lexer as lex
 import parser as parse
 import utils
+import networkx as nx
 
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
-import network
-
-
-net = network.Network()
-
-
-def build_network(node):
-    global net
-
-    if node is None:
-        return
-
-    assert(utils.is_namedtuple(node))
-
-    node_type = type(node).__name__
-
-    if node_type == 'Net':
-        for d in node.decls:
-            build_network(d)
-
-    # Adding net constituents.
-
-    if node_type == 'Morphism':
-        # Handle morph declaration
-        # Add morphism net
-        pass
-
-    elif node_type == 'Net':
-        # Handle AST
-        ast = node.wiring
-
+import network as net
 
 if __name__ == '__main__':
 
@@ -58,7 +29,8 @@ if __name__ == '__main__':
     src = imp.load_source(src_name, src_file)
     src_code = src.__doc__
 
-    global_boxes = {name: func for name, func in inspect.getmembers(src, inspect.isfunction)}
+    cores = {name: func for name, func in inspect.getmembers(src, inspect.isfunction)}
+    network = net.Network(cores)
 
     # Parse source code.
     lexer = lex.build()
@@ -66,3 +38,5 @@ if __name__ == '__main__':
     parser.parse(src_code, lexer=lexer)
     ast = parse.ast
 
+    # Network construction.
+    network.build(ast)

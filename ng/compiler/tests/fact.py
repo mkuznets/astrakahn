@@ -6,13 +6,13 @@ end
 '''
 
 def Test(n):
-    '''3T'''
+    '3T'
     pass
 
 def Gen(n):
-    '''1I'''
+    '1I'
     pass
 
 def Reduce(init, terms):
-    '''1DU'''
+    '1DU'
     pass

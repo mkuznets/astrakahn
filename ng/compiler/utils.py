@@ -1,11 +1,56 @@
 #!/usr/bin/env python3
 
+import sys
+import os
+import re
+import collections
+
+sys.path.insert(0, os.path.dirname(__file__) + '/..')
+import network
+
 def is_namedtuple(x):
     t = type(x)
     f = getattr(t, '_fields', None)
     if not isinstance(f, tuple):
         return False
     return all(type(n)==str for n in f)
+
+
+def box(category):
+    box_tuple = collections.namedtuple("Box",
+                                       "box n_inputs n_outputs ord seg")
+
+    # Type handling
+    cat_re = re.compile('([1-9]\d*)(T|I|DO|DU)')
+    #cat_re = re.compile('([1-9]\d*)(T|I|DO|DU|MO|MS|MU)')
+    parse = cat_re.findall(category.strip())
+
+    if not parse:
+        raise ValueError("Wrong box category")
+
+    n1, cat = parse[0]
+    ordered = None
+    segmentable = None
+
+    n_outputs = int(n1)
+    n_inputs = 2 if cat[0] == 'D' else 1
+
+    # Assign box class
+    if cat == 'T':
+        box_class = network.Transductor
+
+    elif cat == 'I':
+        box_class = network.Inductor
+
+    elif cat[0] == 'D':
+        box_class = network.DyadicReductor
+        ordered = True if cat[1] != 'U' else False
+        segmentable = True if cat[1] == 'S' or cat[1] == 'U' else False
+
+    else:
+        raise ValueError("Wrong box category")
+
+    return box_tuple(box_class, n_inputs, n_outputs, ordered, segmentable)
 
 
 def rprint(obj, offset=0):
