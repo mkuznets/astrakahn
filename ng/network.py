@@ -7,9 +7,6 @@ import communication as comm
 
 import os
 import sys
-import re
-import time
-import collections
 import networkx as nx
 
 sys.path.insert(0, os.path.dirname(__file__) + './compiler')
@@ -81,15 +78,43 @@ class Network:
         #
         if node_type == 'Net':
             for d in node.decls:
-                self.build_network(d)
+                self.build(d)
 
         ## Adding net constituents.
         #
         if node_type == 'Net':
+
+            # Add constituents of the net.
             vertices = self.build_net(node.wiring)
+
+            # Allocate net object.
             net = Net(node.name, node.inputs, node.outputs)
 
+            # Merge identially named channels.
+            copiers = self.flatten_network(vertices)
+            vertices += copiers
+
+            ## Mount ports from boxes to net.
+            #
             gp = self.get_global_ports(vertices)
+
+            # Inputs.
+            for i, name in enumerate(node.inputs):
+                if name not in gp['in']:
+                    raise ValueError('There is no port named `{}\''
+                                     'in the net.'.format(name))
+                ports = gp['in'][name]
+                assert(len(ports) == 1)
+                net.inputs[i] = ports[0][1]
+
+            # Outputs.
+            for i, name in enumerate(node.outputs):
+                if name not in gp['out']:
+                    raise ValueError('There is no port named `{}\''
+                                     'in the net.'.format(name))
+                ports = gp['out'][name]
+                assert(len(ports) == 1)
+                net.outputs[i] = ports[0][1]
 
             self.add_net(net, vertices)
 
@@ -110,6 +135,10 @@ class Network:
             ast_node = ast.node[nid]
 
             if ast_node['type'] == 'node':
+
+                # NOTE: only expressions with box names are supported here!!!
+                # TODO: support network names in wiring expressions.
+
                 if ast_node['value'] not in self.cores:
                     raise ValueError('Wrong box name.')
 
@@ -134,16 +163,60 @@ class Network:
             elif ast_node['type'] == 'operator':
                 rhs = stack.pop()
                 lhs = stack.pop()
+                operator = ast_node['value']
 
-                print("Apply {} on {} and {}".format(ast_node['value'], lhs, rhs))
+                # Merge identially named channels of both operands.
+                copiers = self.flatten_network(lhs)
+                vertices += copiers
+
+                copiers = self.flatten_network(rhs)
+                vertices += copiers
+
+                # Apply wiring to operands.
+                self.add_connection(operator, lhs, rhs)
 
                 stack.append(lhs + rhs)
 
         return vertices
 
+    def add_connection(self, operator, lhs, rhs):
+
+        lhs_outputs = self.get_global_ports(lhs)['out']
+        rhs_inputs = self.get_global_ports(rhs)['in']
+
+        if operator == '||':
+            # Parallel connection: wiring is not required.
+            pass
+
+        elif operator == '..':
+            # Serial connection: all outputs of the first operand are wired to
+            # identically named inputs of the second operand if they exist.
+
+            # Compute identical names.
+            common_names = lhs_outputs.keys() & rhs_inputs.keys()
+
+            for name in common_names:
+                # Channels with the same names must be already merged.
+                assert(len(lhs_outputs[name]) == 1
+                       and len(rhs_inputs[name]) == 1)
+
+                # Make `physical' connection between ports.
+                self.add_wire(lhs_outputs[name][0], rhs_inputs[name][0])
+
+        else:
+            raise ValueError('Wrong wiring operator.')
+
+    def add_wire(self, pa, pb):
+        src_vertex, src_port = pa
+        dst_vertex, dst_port = pb
+
+        src_port['to'] = dst_port['queue']
+        src_port['node_id'] = dst_vertex
+        dst_port['node_id'] = src_vertex
+
     def get_global_ports(self, vertices):
 
-        global_ports = {'in': {} , 'out': {}}
+        global_ports = {'in': {}, 'out': {}}
 
         for vertex_id in vertices:
             vertex = self.node(vertex_id)['obj']
@@ -165,7 +238,37 @@ class Network:
         return global_ports
 
     def flatten_network(self, vertices):
-        pass
+
+        copiers = []
+
+        gp = self.get_global_ports(vertices)
+
+        # Merge input ports.
+        for name, ports in gp['in'].items():
+            np = len(ports)
+            if np > 1:
+                copier_name = '{}_1_to_{}'.format(name, np)
+                copier = Copier(copier_name, [name], [name]*np)
+                copier_id = self.add_vertex(copier)
+                copiers.append(copier_id)
+
+                for i, port in enumerate(ports):
+                    self.add_wire((copier_id, copier.outputs[i]), port)
+
+        # Merge output ports.
+        for name, ports in gp['out'].items():
+            np = len(ports)
+            if np > 1:
+                copier_name = '{}_{}_to_1'.format(name, np)
+                copier = Copier(copier_name, [name]*np, [name])
+                copier_id = self.add_vertex(copier)
+                copiers.append(copier_id)
+
+                for i, port in enumerate(ports):
+                    self.add_wire(port, (copier_id, copier.inputs[i]))
+
+        return copiers
+
 
 class Node:
     def __init__(self, name, inputs, outputs):
@@ -217,14 +320,6 @@ class Vertex(Node):
         output messages sent.
         '''
         raise NotImplemented('The commit method is not defined for the '
-                             'abstract vertex.')
-
-    def is_ready(self):
-        '''
-        Check if the condition on channels are sufficient for the vertex to
-        start.
-        '''
-        raise NotImplemented('The `is_ready\' method is not defined for the '
                              'abstract vertex.')
 
     def is_ready(self):
@@ -483,17 +578,21 @@ import copy
 
 # Box functions
 
+
 def printer(d):
     print(d)
     return ('send', {}, None)
+
 
 def foo(n):
     n += 1
     return ('send', {0: {'value': n, 'n': 10}}, None)
 
+
 def plus(a, b):
     c = a + b
     return ('partial', {}, c)
+
 
 def cnt(s):
     if s['n'] == 0:
@@ -507,6 +606,7 @@ def cnt(s):
     return ('continue', {0: s['value']}, cont)
 
 ###########################
+
 
 def n_enqueued(nodes):
     '''
@@ -632,8 +732,8 @@ if __name__ == '__main__':
                 response = pm.out_queue.get(need_block)
 
                 if not n.is_in(response.vertex_id):
-                    raise ValueError('Vertex corresponsing to the response does'
-                                     'not exist.')
+                    raise ValueError('Vertex corresponsing to the response '
+                                     'does not exist.')
 
                 vertex = n.node(response.vertex_id)['obj']
 
