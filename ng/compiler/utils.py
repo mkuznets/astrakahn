@@ -6,14 +6,15 @@ import re
 import collections
 
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
-import network
+import components
+
 
 def is_namedtuple(x):
     t = type(x)
     f = getattr(t, '_fields', None)
     if not isinstance(f, tuple):
         return False
-    return all(type(n)==str for n in f)
+    return all(type(n) == str for n in f)
 
 
 def box(category):
@@ -37,13 +38,13 @@ def box(category):
 
     # Assign box class
     if cat == 'T':
-        box_class = network.Transductor
+        box_class = components.Transductor
 
     elif cat == 'I':
-        box_class = network.Inductor
+        box_class = components.Inductor
 
     elif cat[0] == 'D':
-        box_class = network.DyadicReductor
+        box_class = components.DyadicReductor
         ordered = True if cat[1] != 'U' else False
         segmentable = True if cat[1] == 'S' or cat[1] == 'U' else False
 
@@ -107,9 +108,11 @@ def print_ast_dot(ast):
         if 'inputs' in attrs or 'outputs' in attrs:
             inputs = ', '.join(name for i, name in attrs['inputs'].items())
             outputs = ', '.join(name for i, name in attrs['outputs'].items())
-            properties['label'] += "\\nInputs: {}\\nOutputs: {}".format(inputs, outputs)
+            properties['label'] += "\\nInputs: {}\\n"\
+                "Outputs: {}".format(inputs, outputs)
 
-        properties_str = ', '.join('{}="{}"'.format(k, v) for k, v in properties.items())
+        properties_str = ', '.join('{}="{}"'.format(k, v)
+                                   for k, v in properties.items())
 
         print("\t{} [{}];".format(n, properties_str))
 

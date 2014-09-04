@@ -6,11 +6,10 @@ import sys
 import inspect
 import lexer as lex
 import parser as parse
-import utils
-import networkx as nx
 
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
 import network as net
+
 
 if __name__ == '__main__':
 
@@ -29,8 +28,9 @@ if __name__ == '__main__':
     src = imp.load_source(src_name, src_file)
     src_code = src.__doc__
 
-    cores = {name: func for name, func in inspect.getmembers(src, inspect.isfunction)}
-    network = net.Network(cores)
+    cores = {name: func
+             for name, func in inspect.getmembers(src, inspect.isfunction)}
+    network = net.Network()
 
     # Parse source code.
     lexer = lex.build()
@@ -39,4 +39,9 @@ if __name__ == '__main__':
     ast = parse.ast
 
     # Network construction.
-    network.build(ast)
+    network.build(ast, cores)
+
+    # TODO: Must be done autotomatically after network construction.
+    network.set_root(network.node_id - 1)
+
+    net.dump(network, 'a.out')
