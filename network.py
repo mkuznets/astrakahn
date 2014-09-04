@@ -17,15 +17,18 @@ class Network:
         self.root = None
         self.node_id = 0
 
-        # Execution schedule: only vertices that are ready for execution.
-        self.schedule = None
-        self.trigger_ports = None
-
-    def node(self, node_id):
-        return self.network.node[node_id]
+    def node(self, node_id, obj=False):
+        if obj:
+            return self.network.node[node_id]['obj']
+        else:
+            return self.network.node[node_id]
 
     def has_node(self, node_id):
         return (node_id in self.network)
+
+    def node_busy(self, node_id):
+        obj = self.network.node[node_id]['obj']
+        return obj.busy
 
     ## Network construction methods.
     ##

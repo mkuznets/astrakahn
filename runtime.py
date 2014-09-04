@@ -3,8 +3,6 @@
 from queue import Empty as Empty
 import pool
 
-import networkx as nx
-
 import network as net
 import communication as comm
 import components
@@ -56,53 +54,51 @@ if __name__ == '__main__':
 
     root.inputs[0]['queue'].put(comm.DataMessage(10))
     root.inputs[0]['queue'].put(comm.SegmentationMark(1))
+    root.inputs[0]['queue'].put(comm.DataMessage(4))
+    root.inputs[0]['queue'].put(comm.SegmentationMark(3))
+
+    n.ready_boxes.append(0)
+    n.node(0)['obj'].start = True
 
     # Processing pool
     pm = pool.PoolManager(2)
     pm.start()
 
-    # Network execution
+    vertices = [vertex_id for vertex_id in n.network.nodes()
+                if n.node(vertex_id)['type'] == 'vertex']
 
     while True:
-        # Traversal
-        nodes = list(nx.dfs_postorder_nodes(n.network, n.root))
 
-        for node_id in nodes:
-            node = n.node(node_id)
+        for node_id in vertices:
+            vertex = n.node(node_id, True)
 
-            if node['type'] == 'net':
-                # Skip: we are interested in boxes only.
+            # NOTE: schedule (ready_boxes list) is now responsible for
+            # availablility of boxes.
+            # 1. Test if the box is already running. If it is, skip it.
+            if vertex.busy:
+                continue
+            # 2. Test if the conditions on channels are sufficient for the
+            #    box execution. Is they're not, skip the box.
+            if vertex.is_ready() != (True, True):
                 continue
 
-            elif node['type'] == 'vertex':
-                vertex = node['obj']
+            # 3. Get input message and form a list of arguments for the
+            #    box function to apply.
+            args, fetched_from, sent_to = vertex.fetch()
 
-                # 1. Test if the box is already running. If it is, skip it.
-                if vertex.busy:
-                    continue
+            if args is None:
+                # 3.1 Input message were handled in fetch(), box execution
+                #     is not required.
+                continue
 
-                # 2. Test if the conditions on channels are sufficient for the
-                #    box execution. Is they're not, skip the box.
-                if not vertex.is_ready():
-                    continue
+            # 4. Assemble all the data needed for the task to send in
+            #    the processing pool.
+            task_data = {'vertex_id': vertex.id, 'args': args}
 
-                # 3. Get input message and form a list of arguments for the
-                #    box function to apply.
-                args = vertex.fetch()
-
-                if args is None:
-                    # 3.1 Input message were handled in fetch(), box execution
-                    #     is not required.
-                    continue
-
-                # 4. Assemble all the data needed for the task to send in
-                #    the processing pool.
-                task_data = {'vertex_id': vertex.id, 'args': args}
-
-                # 5. Send box function and task data to processing pool.
-                #    NOTE: this call MUST always be non-blocking.
-                pm.enqueue(vertex.core, task_data)
-                vertex.busy = True
+            # 5. Send box function and task data to processing pool.
+            #    NOTE: this call MUST always be non-blocking.
+            pm.enqueue(vertex.core, task_data)
+            vertex.busy = True
 
         # Check for responses from processing pool.
 
@@ -110,10 +106,10 @@ if __name__ == '__main__':
             try:
                 # Wait responses from the pool if there're no other messages in
                 # queues to process.
-                need_block = (n_enqueued(nodes) == 0)
+                need_block = False
 
-                #if need_block:
-                #    print("NOTE: waiting result")
+                if need_block:
+                    print("NOTE: waiting result")
 
                 # Vertex response.
                 response = pm.out_queue.get(need_block)
@@ -122,11 +118,11 @@ if __name__ == '__main__':
                     raise ValueError('Vertex corresponsing to the response '
                                      'does not exist.')
 
-                vertex = n.node(response.vertex_id)['obj']
+                vertex = n.node(response.vertex_id, True)
 
                 # Commit the result of computation, e.g. send it to destination
                 # vertices.
-                vertex.commit(response)
+                sent_to = vertex.commit(response)
                 vertex.busy = False
 
             except Empty:

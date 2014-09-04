@@ -32,6 +32,8 @@ class Vertex(Node):
     def __init__(self, name, inputs, outputs):
         super(Vertex, self).__init__(name, inputs, outputs)
 
+        self.state = 0
+
         # Initialize input queues.
         for p in self.inputs:
             p['queue'] = comm.Channel()
@@ -85,6 +87,8 @@ class Vertex(Node):
     busy = False
 
     def send_out(self, mapping, wrap=True):
+        sent_to = []
+
         for port_id, content in mapping.items():
 
             if wrap:
@@ -93,14 +97,17 @@ class Vertex(Node):
                 out_msg = content
 
             self.outputs[port_id]['to'].put(out_msg)
+            sent_to.append(self.outputs[port_id]['node_id'])
+
+        return sent_to
 
     def send_to_range(self, msg, rng, wrap=True):
         mapping = {i: msg for i in rng}
-        self.send_out(mapping, wrap)
+        return self.send_out(mapping, wrap)
 
     def send_to_all(self, msg, wrap=False):
         rng = range(self.n_outputs)
-        self.send_to_range(msg, rng, wrap)
+        return self.send_to_range(msg, rng, wrap)
 
     def output_available(self, rng=None, space_needed=1):
         if rng is None:
@@ -125,22 +132,31 @@ class Transductor(Vertex):
     def fetch(self):
         input_channel = self.inputs[0]['queue']
 
+        fetched_from = []
+        sent_to = []
+
         m = input_channel.get()
+        fetched_from.append(self.inputs[0]['node_id'])
 
         if m.is_segmark():
             # Special behaviour: sengmentation marks are sent through.
-            self.send_to_all(m)
-            return None
+            sent_to += self.send_to_all(m)
+            return (None, fetched_from, sent_to)
 
         else:
-            return [m.content]
+            return ([m.content], fetched_from, sent_to)
 
     def commit(self, response):
+
+        sent_to = []
+
         if response.action == 'send':
             # Send output messages.
-            self.send_out(response.out_mapping)
+            sent_to += self.send_out(response.out_mapping)
         else:
             print(response.action, 'is not implemented.')
+
+        return sent_to
 
 
 class Printer(Transductor):
@@ -151,14 +167,17 @@ class Printer(Transductor):
     def fetch(self):
         input_channel = self.inputs[0]['queue']
 
+        fetched_from = []
+
         # TODO: To revise: strange sanity check: fetch() is run only if there
         # ARE msgs in the input channel.
         if input_channel.is_empty():
             return None
 
         m = input_channel.get()
+        fetched_from.append(self.inputs[0]['node_id'])
 
-        return [m.content]
+        return ([m.content], fetched_from, [])
 
     def is_ready(self):
         # Check if there's an input message.
@@ -178,35 +197,44 @@ class Inductor(Vertex):
     def fetch(self):
         input_channel = self.inputs[0]['queue']
 
+        fetched_from = []
+        sent_to = []
+
         if input_channel.is_empty():
-            return None
+            return (None, fetched_from, sent_to)
 
         m = input_channel.get()
+        fetched_from.append(self.inputs[0]['node_id'])
 
         if m.is_segmark():
             # Special behaviour for segmentation marks.
             m.plus()
-            self.send_to_all(m)
-            return None
+            sent_to += self.send_to_all(m)
+            return (None, fetched_from, sent_to)
 
         else:
-            return [m.content]
+            return ([m.content], fetched_from, sent_to)
 
     def commit(self, response):
+
+        sent_to = []
 
         if response.action == 'continue':
 
             cont = response.aux_data
             # Put the continuation back to the input queue
             self.put_back(0, cont)
+            sent_to.append(self.id)
 
-            self.send_out(response.out_mapping)
+            sent_to += self.send_out(response.out_mapping)
 
         elif response.action == 'terminate':
-            self.send_out(response.out_mapping)
+            sent_to += self.send_out(response.out_mapping)
 
         else:
             print(response.action, 'is not implemented.')
+
+        return sent_to
 
 
 class DyadicReductor(Vertex):
@@ -239,45 +267,61 @@ class DyadicReductor(Vertex):
         init_terms = self.inputs[0]['queue']
         other_terms = self.inputs[1]['queue']
 
+        fetched_from = []
+        sent_to = []
+
         # Sanity check. TODO: revise.
         if init_terms.is_empty() or other_terms.is_empty():
-            return None
+            return (None, fetched_from, sent_to)
 
-        # First reduction operard:
+        # First reduction operand:
         term_a = init_terms.get()
+        fetched_from.append(self.inputs[0]['node_id'])
+
         if term_a.is_segmark():
             # Special behaviour for segmentation marks.
             term_a.plus()
-            self.send_to_range(term_a, range(1, self.n_outputs), wrap=False)
-            return None
+            sent_to += self.send_to_range(term_a, range(1, self.n_outputs),
+                                          wrap=False)
+            return (None, fetched_from, sent_to)
 
         # Second reduction operand
         term_b = other_terms.get()
+
+        fetched_from.append(self.inputs[1]['node_id'])
+
         if term_b.is_segmark():
             # Special behaviour for segmentation marks.
-            self.send_out({0: term_a}, wrap=False)
+            sent_to += self.send_out({0: term_a}, wrap=False)
 
             if term_b.n != 1:
                 if term_b.n > 1:
                     term_b.minus()
-                self.send_out({0: term_b}, wrap=False)
+                sent_to += self.send_out({0: term_b}, wrap=False)
+
+            return (None, fetched_from, sent_to)
 
         # Input messages are not segmarks: pass them to coordinator.
-        return [term_a.content, term_b.content]
+        return ([term_a.content, term_b.content], fetched_from, sent_to)
 
     def commit(self, response):
+
+        sent_to = []
 
         if response.action == 'partial':
             # First output channel cannot be the destination of partial result.
             assert(0 not in response.out_mapping)
-            self.send_out(response.out_mapping)
+            sent_to += self.send_out(response.out_mapping)
 
             # Put partial reduction result to the first input channel for
             # further reduction.
             self.put_back(0, response.aux_data)
+            sent_to.append(self.id)
 
         else:
             print(response.action, 'is not implemented.')
+
+        return sent_to
 
 
 class Copier(Vertex):
@@ -286,15 +330,21 @@ class Copier(Vertex):
         super(Copier, self).__init__(name, inputs, outputs)
 
     def fetch(self):
+
+        fetched_from = []
+        sent_to = []
+
         for i, port in enumerate(self.inputs):
-            if port['queue'].size() > 0:
-                input_channel = port['queue']
+            if not port['queue'].is_empty():
+                input_port = port
                 break
 
-        m = input_channel.get()
+        m = input_port['queue'].get()
+        fetched_from.append(input_port['node_id'])
 
-        self.send_to_all(m)
-        return None
+        sent_to += self.send_to_all(m)
+        return (None, fetched_from, sent_to)
 
     def commit(self, response):
+        # The method was intentionally left blank.
         pass
