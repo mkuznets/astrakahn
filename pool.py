@@ -8,11 +8,18 @@ import time
 import ctypes
 import numpy as np
 
+import dill
+import marshal
+import types
+
 import data_objects as data
 
 Result = collections.namedtuple('Result', 'vertex_id action out_mapping aux_data')
 
 def core_wrapper(core, task_data):
+
+    code = marshal.loads(core[1])
+    core = types.FunctionType(code, globals(), core[0])
 
     vertex_id = task_data['vertex_id']
     args = task_data['args']
@@ -47,7 +54,9 @@ class PoolManager:
         self.out_queue.put(result)
 
     def enqueue(self, core, task_data):
-        self.in_queue.put((core, task_data))
+        name = core.__name__
+        core_serialized = (name, marshal.dumps(core.__code__))
+        self.in_queue.put((core_serialized, task_data))
 
     def manager(self):
         pool = Pool(processes=self.nproc)

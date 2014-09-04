@@ -4,7 +4,10 @@ from queue import Empty as Empty
 import pool
 
 import networkx as nx
+
 import network as net
+import communication as comm
+import components
 
 
 def n_enqueued(nodes):
@@ -27,9 +30,32 @@ def n_enqueued(nodes):
     return n_msgs
 
 
+def printer(d):
+    print(d)
+    return ('send', {}, None)
+
+
 if __name__ == '__main__':
 
-    n = net.load(input_file='compiler/a.out')
+    n = net.load(input_file='compiler/tests/a.out')
+
+    # HACK: Add printer to the network
+    pr = components.Printer('Printer', ['pin'], ['pout'], printer)
+    pr_id = n.add_vertex(pr)
+
+    root = n.node(n.root)['obj']
+
+    n.network.add_edge(n.root, pr_id)
+    root.outputs[0]['to'] = pr.inputs[0]['queue']
+
+    root.outputs[0]['node_id'] = pr_id
+    pr.inputs[0]['node_id'] = n.root - 1
+
+    root.outputs[0] = pr.outputs[0]
+    ########################################
+
+    root.inputs[0]['queue'].put(comm.DataMessage(10))
+    root.inputs[0]['queue'].put(comm.SegmentationMark(1))
 
     # Processing pool
     pm = pool.PoolManager(2)

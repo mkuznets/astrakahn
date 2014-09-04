@@ -1,355 +1,299 @@
 #!/usr/bin/env python3
 
+import components
+
+import os
+import sys
 import networkx as nx
-import re
-import components as comp
-import communication as comm
-from collections import namedtuple
-import copy
 
-Port = namedtuple("Port", "vname side cid")
-
-
-def box_spec(category):
-    box_tuple = namedtuple("Box", "box n_inputs n_outputs ordered segmentable")
-
-    # Type handling
-    cat_re = re.compile('([1-9]\d*)?(T|I|C|P|R|S|DO|DU|MO|MS|MU)([1-9]\d*)?')
-    parse = cat_re.findall(category)
-
-    if not parse:
-        raise ValueError("Wrong box category")
-
-    n1, cat, n2 = parse[0]
-    ordered = None
-    segmentable = None
-
-    n_outputs = int(n1) if n1 else 0
-    n_inputs = (2 if cat[0] == 'D' else 1) if n1 else int(n2)
-
-    # Assign box class
-    if cat == 'T':
-        box_class = comp.Transductor
-        assert(n1 and not n2)
-
-    elif cat == 'I':
-        box_class = comp.Inductor
-        assert(n1 and not n2)
-
-    elif cat[0] == 'D' or cat[0] == 'M':
-        assert(n1 and not n2)
-        box_class = comp.Reductor
-        ordered = True if cat[1] != 'U' else False
-        segmentable = True if cat[1] == 'S' or cat[1] == 'U' else False
-
-    elif cat == 'C':
-        box_class = comp.Consumer
-        assert(not n1 and n2)
-
-    elif cat == 'P':
-        box_class = comp.Producer
-        assert(n1 and not n2)
-
-    elif cat == 'R':
-        box_class = comp.Repeater
-        assert(n1 and n2)
-        n_inputs, n_outputs = int(n2), int(n1)
-
-    elif cat == 'S':
-        box_class = comp.Synchroniser
-        assert(n1 and n2)
-        n_inputs, n_outputs = int(n2), int(n1)
-
-    else:
-        raise ValueError("Wrong box category")
-
-    return box_tuple(box_class, n_inputs, n_outputs, ordered, segmentable)
+sys.path.insert(0, os.path.dirname(__file__) + '/compiler')
+import utils
 
 
 class Network:
 
-    def __init__(self, name):
+    def __init__(self):
         self.network = nx.DiGraph()
-        self.channels = {'in': {}, 'out': {}}
+        self.root = None
+        self.node_id = 0
 
-        self.wires = {}
-        self.wid_cnt = 0
-        self.rcnt = 0
+        # Execution schedule: only vertices that are ready for execution.
+        self.schedule = None
+        self.trigger_ports = None
 
-    ## Getters:
+    def node(self, node_id):
+        return self.network.node[node_id]
+
+    def has_node(self, node_id):
+        return (node_id in self.network)
+
+    ## Network construction methods.
     ##
 
-    def vertices(self):
-        return self.network.nodes()
+    def add_net(self, net, node_ids):
+        net_id = self.node_id
+        self.node_id += 1
 
-    def edges(self):
-        return self.network.edges()
+        net.id = net_id
+        self.network.add_node(net_id, {'type': 'net', 'obj': net})
 
-    def vertex_box(self, v):
-        return self.network.node[v]['box']
+        # Collect components of the net as predesessors.
+        for n in node_ids:
+            self.network.add_edge(net_id, n)
+        return net_id
 
-    def get_wire_id(self, port):
-        self.is_port(port)
-        return self.network.node[port.vname][port.side][port.cid]
+    def add_vertex(self, vertex):
+        vertex_id = self.node_id
+        self.node_id += 1
 
-    def set_wire_id(self, port, wid):
-        self.is_port(port)
-        self.network.node[port.vname][port.side][port.cid] = wid
+        vertex.id = vertex_id
+        self.network.add_node(vertex_id, {'type': 'vertex', 'obj': vertex})
 
-    def is_port(self, port):
-        if port.vname not in self.vertices():
-            raise ValueError("Wrong vertex name.")
-        n_channels = len(self.network.node[port.vname][port.side])
-        if port.cid < 0 or n_channels < (port.cid + 1):
-            raise ValueError("Wrong channel id or side.")
+        return vertex_id
 
-    ## Network builders
-    ##
+    def set_root(self, node_id):
+        self.root = node_id
 
-    def add_vertex(self, category, name, inputs, outputs, **args):
-        # Forbid identical names in the network
-        if name in self.vertices():
-            raise ValueError("There's already a box with this name:", name)
+    def build(self, node, cores):
 
-        box_class, n_inputs, n_outputs, ordered, segmentable = box_spec(category)
+        if node is None:
+            return
 
-        if len(inputs) != n_inputs or len(outputs) != n_outputs:
-            raise ValueError("Wrong channels definition")
+        assert(utils.is_namedtuple(node))
 
-        if (ordered is not None) and (segmentable is not None):
-            args['ordered'] = ordered
-            args['segmentable'] = segmentable
+        node_type = type(node).__name__
 
-        box = box_class(n_inputs, n_outputs, **args)
+        ## Traverse in depth first.
+        #
+        if node_type == 'Net':
+            for d in node.decls:
+                self.build(d)
 
-        for side in ['in', 'out']:
-            for cid, cname in enumerate(inputs if side == 'in' else outputs):
-                if cname in self.channels[side]:
-                    self.channels[side][cname].append(Port(name, side, cid))
-                else:
-                    self.channels[side][cname] = [Port(name, side, cid)]
+        ## Adding net constituents.
+        #
+        if node_type == 'Net':
 
-        # Add node to the graph
-        self.network.add_node(name, {'box': box, 'in': [None]*n_inputs,
-                                     'out': [None]*n_outputs})
+            # Add constituents of the net.
+            vertices = self.build_net(node.wiring, cores)
 
-    def add_wire(self, src, dst):
+            # Allocate net object.
+            net = components.Net(node.name, node.inputs, node.outputs)
 
-        src = Port(src[0], 'out', src[1])
-        dst = Port(dst[0], 'in', dst[1])
+            # Merge identially named channels.
+            copiers = self.flatten_network(vertices)
+            vertices += copiers
 
-        wid_in = self.get_wire_id(dst)
-        wid_out = self.get_wire_id(src)
+            ## Mount ports from boxes to net.
+            #
+            gp = self.get_global_ports(vertices)
 
-        # Both ports are ports are connected to some wires (not necessarily to
-        # the same one)
-        if (wid_in is not None) and (wid_out is not None):
-            if wid_in == wid_out:
-                return
+            # Inputs.
+            for i, name in enumerate(node.inputs):
+                if name not in gp['in']:
+                    raise ValueError('There is no port named `{}\''
+                                     'in the net.'.format(name))
+                ports = gp['in'][name]
+                assert(len(ports) == 1)
+                net.inputs[i] = ports[0][1]
 
-            for side in ['in', 'out']:
-                for p in self.wires[wid_in][side]:
-                    self.wires[wid_out][side].append(p)
+            # Outputs.
+            for i, name in enumerate(node.outputs):
+                if name not in gp['out']:
+                    raise ValueError('There is no port named `{}\''
+                                     'in the net.'.format(name))
+                ports = gp['out'][name]
+                assert(len(ports) == 1)
+                net.outputs[i] = ports[0][1]
 
-            del self.wires[wid_in]
-            self.wid_cnt -= 1
+            self.add_net(net, vertices)
 
-        elif (wid_in is None) and (wid_out is None):
-            self.set_wire_id(src, self.wid_cnt)
-            self.set_wire_id(dst, self.wid_cnt)
+        elif node_type == 'Morphism':
+            # Handle morph declaration
+            # Add morphism net
+            pass
 
-            if self.wid_cnt not in self.wires:
-                self.wires[self.wid_cnt] = {'in': [], 'out': []}
-            self.wires[self.wid_cnt]['in'].append(dst)
-            self.wires[self.wid_cnt]['out'].append(src)
+    def build_net(self, ast, cores):
 
-            self.wid_cnt += 1
+        vertices = []
 
-        elif (wid_in is not None) or (wid_out is not None):
-            wid = wid_in if (wid_in is not None) else wid_out
-            self.set_wire_id(src, wid)
-            self.set_wire_id(dst, wid)
+        # Wiring AST: postorder traversal
+        ids = nx.dfs_postorder_nodes(ast, ast.graph['root'])
+        stack = []
 
-            if wid_in:
-                self.wires[wid_in]['in'].append(dst)
-            elif wid_out:
-                self.wires[wid_out]['out'].append(src)
+        for nid in ids:
+            ast_node = ast.node[nid]
 
-    def flatten_wiring(self):
-        wids = list(self.wires.keys())
+            if ast_node['type'] == 'node':
 
-        for wid in wids:
-            ports = self.wires[wid]
+                # NOTE: only expressions with box names are supported here!!!
+                # TODO: support network names in wiring expressions.
 
-            if len(ports['in']) > 1 or len(ports['out']) > 1:
-                # Multiconnection is transformed to repeater.
-                ni = len(ports['in'])
-                no = len(ports['out'])
+                if ast_node['value'] not in cores:
+                    raise ValueError('Wrong box name.')
 
-                for side in ['in', 'out']:
-                    for p in ports[side]:
-                        self.network.node[p.vname][p.side][p.cid] = None
+                box_core = cores[ast_node['value']]
 
-                del self.wires[wid]
+                # Box properties and constructor.
+                box = utils.box(box_core.__doc__)
 
-                cat = str(no) + 'R' + str(ni)
-                name = 'rep_' + str(self.rcnt)
-                self.rcnt += 1
-                self.add_vertex(cat, name, ['_' + str(i) for i in range(ni)],
-                                ['_' + str(i) for i in range(no)])
+                # Generate names of ports.
+                inputs = [(ast_node['inputs'].get(i, '_{}'.format(i)))
+                          for i in range(box.n_inputs)]
+                outputs = [(ast_node['outputs'].get(i, '_{}'.format(i)))
+                           for i in range(box.n_outputs)]
 
-                # Connect inputs of repeater.
-                for i, p in enumerate(ports['out']):
-                    self.add_wire((p.vname, p.cid), (name, i))
-                # Connect outputs of repeater.
-                for i, p in enumerate(ports['in']):
-                    self.add_wire((name, i), (p.vname, p.cid))
+                # Create vertex object and insert to network.
+                vertex = box.box(ast_node['value'], inputs, outputs, box_core)
+                vertex_id = self.add_vertex(vertex)
 
-    ## Network operators.
-    ##
+                stack.append([vertex_id])
+                vertices.append(vertex_id)
 
-    def serial_composition(self, net):
-        self.composition(net, wiring=True)
+            elif ast_node['type'] == 'operator':
+                rhs = stack.pop()
+                lhs = stack.pop()
+                operator = ast_node['value']
 
-    def parallel_composition(self, net):
-        self.composition(net, wiring=False)
+                # Merge identially named channels of both operands.
+                copiers = self.flatten_network(lhs)
+                vertices += copiers
 
-    def composition(self, net, wiring=False):
-        if wiring:
-            # Common channel names (outputs of `self' and inputs of `net').
-            common = set(self.channels['out']) & set(net.channels['in'])
+                copiers = self.flatten_network(rhs)
+                vertices += copiers
 
-        wires = copy.copy(net.wires)
-        self.network = nx.union(self.network, net.network)
+                # Apply wiring to operands.
+                self.add_connection(operator, lhs, rhs)
 
-        # Wire merging and renaming: increase all wire ids from `net' to
-        # prevent collision.
-        for wid, ports in wires.items():
-            self.wires[wid + self.wid_cnt] = ports
-            for p in ports['in'] + ports['out']:
-                self.set_wire_id(p, self.get_wire_id(p) + self.wid_cnt)
-        self.wid_cnt = max(self.wires) + 1
+                stack.append(lhs + rhs)
 
-        if wiring:
-            # Create connection between identically named channels.
-            for cname in common:
-                # Get global ports by the channel name.
-                ports_dst = [p for p in net.channels['in'][cname]
-                             if self.get_wire_id(p) is None]
-                ports_src = [p for p in self.channels['out'][cname]
-                             if self.get_wire_id(p) is None]
+        return vertices
 
-                for ps in ports_src:
-                    for pd in ports_dst:
-                        self.add_wire((ps.vname, ps.cid), (pd.vname, pd.cid))
+    def add_connection(self, operator, lhs, rhs):
 
-        # Merge channels.
-        for side in ['in', 'out']:
-            for cname, ports in net.channels[side].items():
-                if cname in self.channels[side]:
-                    self.channels[side][cname] += ports
-                else:
-                    self.channels[side][cname] = ports
+        lhs_outputs = self.get_global_ports(lhs)['out']
+        rhs_inputs = self.get_global_ports(rhs)['in']
 
-    def wire_physical(self):
-        # All wires must be single-producer-single-consumer.
-        self.flatten_wiring()
+        if operator == '||':
+            # Parallel connection: wiring is not required.
+            pass
 
-        # Assign queues to wires.
-        for wid, ports in self.wires.items():
-            assert(len(ports['in']) == 1 and len(ports['out']) == 1)
-            p_in = ports['in'][0]
-            p_out = ports['out'][0]
+        elif operator == '..':
+            # Serial connection: all outputs of the first operand are wired to
+            # identically named inputs of the second operand if they exist.
 
-            channel = comm.Channel()
-            self.vertex_box(p_in.vname).set_input(p_in.cid, channel)
-            self.vertex_box(p_out.vname).set_output(p_out.cid, channel)
+            # Compute identical names.
+            common_names = lhs_outputs.keys() & rhs_inputs.keys()
 
-        # Assign queues to global inputs and outputs.
-        for side in ['in', 'out']:
-            for (cname, ports) in self.channels[side].items():
-                for p in ports:
-                    if self.get_wire_id(p) is None:
-                        channel = comm.Channel()
-                        if side == 'in':
-                            self.vertex_box(p.vname).set_input(p.cid, channel)
-                        else:
-                            self.vertex_box(p.vname).set_output(p.cid, channel)
+            for name in common_names:
+                # Channels with the same names must be already merged.
+                assert(len(lhs_outputs[name]) == 1
+                       and len(rhs_inputs[name]) == 1)
 
-    def start(self):
-        self.wire_physical()
-        for v in self.vertices():
-            self.vertex_box(v).start()
+                # Make `physical' connection between ports.
+                self.add_wire(lhs_outputs[name][0], rhs_inputs[name][0])
 
-    def join(self):
-        for v in self.vertices():
-            self.vertex_box(v).join()
+        else:
+            raise ValueError('Wrong wiring operator.')
 
-    ## Debug.
-    ##
+    def add_wire(self, pa, pb):
+        src_vertex, src_port = pa
+        dst_vertex, dst_port = pb
 
-    def debug_status(self):
-        print("Vertices:")
-        for v in self.vertices():
-            print("\t", v, self.vertex_box(v))
+        src_port['to'] = dst_port['queue']
+        src_port['node_id'] = dst_vertex
+        dst_port['node_id'] = src_vertex
 
-        print("\nInputs:")
-        for (cname, ports) in self.channels['in'].items():
-            for p in ports:
-                print("\t", p.vname + "[" + cname + ", " + str(p.cid) + "]")
+    def get_global_ports(self, vertices):
 
-        print("\nOutputs:")
-        for (cname, ports) in self.channels['out'].items():
-            for p in ports:
-                print("\t", p.vname + "[" + cname + ", " + str(p.cid) + "]")
+        global_ports = {'in': {}, 'out': {}}
 
-        print("\nWires:")
+        for vertex_id in vertices:
+            vertex = self.node(vertex_id)['obj']
 
-        for w in self.wires.items():
-            print(w)
+            for p in vertex.inputs:
+                if p['node_id'] is None:
+                    if p['name'] in global_ports['in']:
+                        global_ports['in'][p['name']].append((vertex_id, p))
+                    else:
+                        global_ports['in'][p['name']] = [(vertex_id, p)]
 
-        for v in self.edges():
-            f, t = v
-            for (src, dst, args) in self.network.edge[f][t]['wires']:
-                print("\t",
-                      f + str(tuple(src)) + " ->",
-                      t + str(tuple(dst)) + "")
+            for p in vertex.outputs:
+                if p['node_id'] is None:
+                    if p['name'] in global_ports['out']:
+                        global_ports['out'][p['name']].append((vertex_id, p))
+                    else:
+                        global_ports['out'][p['name']] = [(vertex_id, p)]
 
-        print("\nGlobal inputs:")
-        for (cname, ports) in self.channels['in'].items():
-            for p in ports:
-                if self.get_wire_id(p) is None:
-                    print("\t", p.vname + "[" + cname + ", " + str(p.cid) + "]")
+        return global_ports
 
-        print("\nGlobal outputs:")
-        for (cname, ports) in self.channels['out'].items():
-            for p in ports:
-                if self.get_wire_id(p) is None:
-                    print("\t", p.vname + "[" + cname + ", " + str(p.cid) + "]")
+    def flatten_network(self, vertices):
+
+        copiers = []
+
+        gp = self.get_global_ports(vertices)
+
+        # Merge input ports.
+        for name, ports in gp['in'].items():
+            np = len(ports)
+            if np > 1:
+                copier_name = '{}_1_to_{}'.format(name, np)
+                copier = components.Copier(copier_name, [name], [name]*np)
+                copier_id = self.add_vertex(copier)
+                copiers.append(copier_id)
+
+                for i, port in enumerate(ports):
+                    self.add_wire((copier_id, copier.outputs[i]), port)
+
+        # Merge output ports.
+        for name, ports in gp['out'].items():
+            np = len(ports)
+            if np > 1:
+                copier_name = '{}_{}_to_1'.format(name, np)
+                copier = components.Copier(copier_name, [name]*np, [name])
+                copier_id = self.add_vertex(copier)
+                copiers.append(copier_id)
+
+                for i, port in enumerate(ports):
+                    self.add_wire(port, (copier_id, copier.inputs[i]))
+
+        return copiers
 
 
-if __name__ == "__main__":
+def dump(network, output_file=None):
+    import dill
+    import marshal
 
-    N = Network('test')
-    N.add_vertex("1I", "A", ['i00'], ['o00'], core=print)
-    N.add_vertex("1T", "B", ['i10'], ['o10'], core=print)
-    N.add_vertex("1T", "C", ['i20'], ['o20'], core=print)
-    N.add_vertex("1T", "D", ['i30'], ['o30'], core=print)
+    # Dump core functions throughout the network to allow the Network
+    # object to be serialized.
+    for n in network.network.nodes():
+        obj = network.node(n)['obj']
+        if hasattr(obj, 'core') and obj.core is not None:
+            name = obj.core.__name__
+            obj.core = (name, marshal.dumps(obj.core.__code__))
 
-    N.add_wire(('A', 0), ('B', 0))
-    N.add_wire(('C', 0), ('D', 0))
-    N.add_wire(('A', 0), ('D', 0))
+    if output_file is None:
+        return dill.dumps(network)
+    else:
+        dill.dump(network, open(output_file, 'wb'))
 
-    P = Network('test2')
-    P.add_vertex("1I", "I", ['o30'], ['gen'], core=print)
-    P.add_vertex("1T", "T", ['out'], ['ready'], core=print)
-    P.add_vertex("1MU", "R", ['i'], ['r'], core=print)
-    P.add_wire(('I', 0), ('T', 0))
-    P.add_wire(('T', 0), ('R', 0))
 
-    #N.serial_composition(P)
-    N.parallel_composition(P)
+def load(obj=None, input_file=None):
+    import dill
+    import marshal
+    import types
 
-    N.flatten_wiring()
-    N.wire_physical()
-    N.debug_status()
+    if obj is not None:
+        network = dill.loads(obj)
+    elif input_file is not None:
+        network = dill.load(open(input_file, 'rb'))
+    else:
+        raise ValueError('Either object or input file must be specified.')
+
+    # Deserialize functions' code.
+    for n in network.network.nodes():
+        obj = network.node(n)['obj']
+        if hasattr(obj, 'core') and obj.core is not None:
+            code = marshal.loads(obj.core[1])
+            obj.core = types.FunctionType(code, globals(), obj.core[0])
+
+    return network
