@@ -2,19 +2,18 @@
 
 from multiprocessing import Process, Pool, Array, Queue
 import collections
-import time
 
 # For shared arrays
 import ctypes
-import numpy as np
 
-import dill
 import marshal
 import types
 
 import data_objects as data
 
-Result = collections.namedtuple('Result', 'vertex_id action out_mapping aux_data')
+Result = collections.namedtuple('Result',
+                                'vertex_id action out_mapping aux_data')
+
 
 def core_wrapper(core, task_data):
 
@@ -63,7 +62,7 @@ class PoolManager:
 
         while True:
             task = self.in_queue.get()
-            r = pool.apply_async(core_wrapper, task, callback=self.dispatch_result)
+            pool.apply_async(core_wrapper, task, callback=self.dispatch_result)
 
         pool.close()
         pool.join()

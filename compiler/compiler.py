@@ -44,4 +44,4 @@ if __name__ == '__main__':
     # TODO: Must be done autotomatically after network construction.
     network.set_root(network.node_id - 1)
 
-    net.dump(network, 'a.out')
+    net.dump(network, 'tests/a.out')
