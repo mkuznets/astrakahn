@@ -67,19 +67,14 @@ class Vertex(Node):
         be available.
         '''
         # Test if there's an input message.
-        ready = False
+        input_ready = False
         for port in self.inputs:
-            if not port['queue'].is_empty():
-                ready |= True
-
-        if not ready:
-            return False
+            input_ready |= (not port['queue'].is_empty())
 
         # Test availability of outputs.
-        if not self.output_available():
-            return False
+        output_ready = self.output_available()
 
-        return True
+        return (input_ready, output_ready)
 
     ##
     ## Methods that are specific for boxes
@@ -167,12 +162,11 @@ class Printer(Transductor):
 
     def is_ready(self):
         # Check if there's an input message.
-        ready = False
+        input_ready = False
         for port in self.inputs:
-            if not port['queue'].is_empty():
-                ready |= True
+            input_ready |= (not port['queue'].is_empty())
 
-        return ready
+        return (input_ready, True)
 
 
 class Inductor(Vertex):
@@ -227,21 +221,19 @@ class DyadicReductor(Vertex):
         #
 
         # Reduction start: 2 messages from both channel are needed.
+        input_ready = True
         for port in self.inputs:
-            if port['queue'].is_empty():
-                return False
+            input_ready &= (not port['queue'].is_empty())
 
         ## Test output availability.
         #
-        if not self.output_available(range(1, self.n_outputs)):
-            return False
 
+        output_ready = self.output_available(range(1, self.n_outputs))
         # Test the 1st output separately since it must have enough space
         # for segmentation mark.
-        if not self.output_available((0,), space_needed=2):
-            return False
+        output_ready &= self.output_available((0,), space_needed=2)
 
-        return True
+        return (input_ready, output_ready)
 
     def fetch(self):
         init_terms = self.inputs[0]['queue']
