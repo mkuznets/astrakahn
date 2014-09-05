@@ -84,7 +84,7 @@ if __name__ == '__main__':
 
             # 3. Get input message and form a list of arguments for the
             #    box function to apply.
-            args, fetched_from, sent_to = vertex.fetch()
+            args = vertex.fetch()
 
             if args is None:
                 # 3.1 Input message were handled in fetch(), box execution

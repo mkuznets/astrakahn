@@ -19,7 +19,7 @@ class Channel:
 
     def get(self):
         if len(self.queue) == 0:
-            raise IndexError('Queue is empty')
+            raise Empty('Queue is empty')
         return self.queue.popleft()
 
     def is_space_for(self, n):
@@ -106,3 +106,8 @@ class DataMessage(Message):
 
     def __str__(self):
         return self.__repr__()
+
+
+class Empty(Exception):
+    def __init__(self, value):
+        self.value = value
