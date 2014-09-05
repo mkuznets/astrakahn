@@ -57,19 +57,21 @@ if __name__ == '__main__':
     root.inputs[0]['queue'].put(comm.DataMessage(4))
     root.inputs[0]['queue'].put(comm.SegmentationMark(3))
 
-    n.ready_boxes.append(0)
     n.node(0)['obj'].start = True
 
     # Processing pool
     pm = pool.PoolManager(2)
     pm.start()
 
-    vertices = [vertex_id for vertex_id in n.network.nodes()
-                if n.node(vertex_id)['type'] == 'vertex']
+    vertices = {vertex_id for vertex_id in n.network.nodes()
+                if n.node(vertex_id)['type'] == 'vertex'}
+
+    schedule = vertices
+    new_schedule = set()
 
     while True:
 
-        for node_id in vertices:
+        for node_id in schedule:
             vertex = n.node(node_id, True)
 
             # NOTE: schedule (ready_boxes list) is now responsible for
@@ -85,6 +87,18 @@ if __name__ == '__main__':
             # 3. Get input message and form a list of arguments for the
             #    box function to apply.
             args = vertex.fetch()
+
+            impact = vertex.collect_impact()
+            print('Impact', impact)
+            for vertex_id in impact[0] + impact[1]:
+
+                if vertex_id is None:
+                    vertex_id = vertex.id
+
+                obj = n.node(vertex_id, True)
+
+                if obj.is_ready():
+                    new_schedule.add(vertex_id)
 
             if args is None:
                 # 3.1 Input message were handled in fetch(), box execution
@@ -124,6 +138,23 @@ if __name__ == '__main__':
                 # vertices.
                 sent_to = vertex.commit(response)
                 vertex.busy = False
+
+                impact = vertex.collect_impact()
+                print('Impact', impact)
+                for vertex_id in impact[0] + impact[1]:
+
+                    if vertex_id is None:
+                        vertex_id = vertex.id
+
+                    obj = n.node(vertex_id, True)
+
+                    if obj.is_ready():
+                        new_schedule.add(vertex_id)
+
+
+                print(new_schedule)
+                schedule = new_schedule
+                new_schedule = set()
 
             except Empty:
                 break

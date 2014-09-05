@@ -42,6 +42,9 @@ class Vertex(Node):
         # Vertex function that is applied to the input messages.
         self.core = None
 
+        self.arrivals = []
+        self.departures = []
+
     # TODO: the method is run on the assumption that is_ready() returned True,
     # this creates undesirable logical dependence between these methods.
     def fetch(self):
@@ -88,27 +91,21 @@ class Vertex(Node):
     busy = False
 
     def send_out(self, mapping, wrap=True):
-        sent_to = []
 
         for port_id, content in mapping.items():
+            out_msg = comm.DataMessage(content) if wrap else content
+            port = self.outputs[port_id]
 
-            if wrap:
-                out_msg = comm.DataMessage(content)
-            else:
-                out_msg = content
-
-            self.outputs[port_id]['to'].put(out_msg)
-            sent_to.append(self.outputs[port_id]['node_id'])
-
-        return sent_to
+            port['to'].put(out_msg)
+            self.departures.append(port['node_id'])
 
     def send_to_range(self, msg, rng, wrap=True):
         mapping = {i: msg for i in rng}
-        return self.send_out(mapping, wrap)
+        self.send_out(mapping, wrap)
 
     def send_to_all(self, msg, wrap=False):
         rng = range(self.n_outputs)
-        return self.send_to_range(msg, rng, wrap)
+        self.send_to_range(msg, rng, wrap)
 
     def output_available(self, rng=None, space_needed=1):
         if rng is None:
@@ -131,7 +128,16 @@ class Vertex(Node):
         port = self.inputs[port_id]
 
         m = port['queue'].get()
+        self.arrivals.append(port['node_id'])
+
         return m
+
+    def collect_impact(self):
+        impact = (self.departures, self.arrivals)
+        self.departures = []
+        self.arrivals = []
+
+        return impact
 
 
 class Transductor(Vertex):
@@ -171,6 +177,10 @@ class Printer(Transductor):
         return [m.content]
 
     def is_ready(self):
+
+        if self.busy:
+            return (False, False)
+
         # Check if there's an input message.
         input_ready = False
         for port in self.inputs:
