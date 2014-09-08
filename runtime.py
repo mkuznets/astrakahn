@@ -52,10 +52,10 @@ if __name__ == '__main__':
     root.outputs[0] = pr.outputs[0]
     ########################################
 
-    root.inputs[0]['queue'].put(comm.DataMessage(10))
-    root.inputs[0]['queue'].put(comm.SegmentationMark(1))
-    root.inputs[0]['queue'].put(comm.DataMessage(4))
-    root.inputs[0]['queue'].put(comm.SegmentationMark(3))
+    root.put(0, 3)
+    root.put(0, comm.SegmentationMark(1), wrap=False)
+    root.put(0, 10)
+    root.put(0, comm.SegmentationMark(3), wrap=False)
 
     n.node(0)['obj'].start = True
 
@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
     while True:
 
-        for node_id in schedule:
+        for node_id in vertices:
             vertex = n.node(node_id, True)
 
             # NOTE: schedule (ready_boxes list) is now responsible for
@@ -88,17 +88,17 @@ if __name__ == '__main__':
             #    box function to apply.
             args = vertex.fetch()
 
-            impact = vertex.collect_impact()
-            print('Impact', impact)
-            for vertex_id in impact[0] + impact[1]:
+            #impact = vertex.collect_impact()
+            #print('Impact', impact)
+            #for vertex_id in impact[0] + impact[1]:
 
-                if vertex_id is None:
-                    vertex_id = vertex.id
+            #    if vertex_id is None:
+            #        vertex_id = vertex.id
 
-                obj = n.node(vertex_id, True)
+            #    obj = n.node(vertex_id, True)
 
-                if obj.is_ready():
-                    new_schedule.add(vertex_id)
+            #    if obj.is_ready():
+            #        new_schedule.add(vertex_id)
 
             if args is None:
                 # 3.1 Input message were handled in fetch(), box execution
@@ -139,22 +139,22 @@ if __name__ == '__main__':
                 sent_to = vertex.commit(response)
                 vertex.busy = False
 
-                impact = vertex.collect_impact()
-                print('Impact', impact)
-                for vertex_id in impact[0] + impact[1]:
+                #impact = vertex.collect_impact()
+                #print('Impact', impact)
+                #for vertex_id in impact[0] + impact[1]:
 
-                    if vertex_id is None:
-                        vertex_id = vertex.id
+                #    if vertex_id is None:
+                #        vertex_id = vertex.id
 
-                    obj = n.node(vertex_id, True)
+                #    obj = n.node(vertex_id, True)
 
-                    if obj.is_ready():
-                        new_schedule.add(vertex_id)
+                #    if obj.is_ready():
+                #        new_schedule.add(vertex_id)
 
 
-                print(new_schedule)
-                schedule = new_schedule
-                new_schedule = set()
+                #print(new_schedule)
+                #schedule = new_schedule
+                #new_schedule = set()
 
             except Empty:
                 break

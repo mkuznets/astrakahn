@@ -60,9 +60,31 @@ class Message:
 
 class SegmentationMark(Message):
 
-    def __init__(self, n):
+    def __init__(self, n=None, brackets=None):
         # Number of opening and closing brakets.
-        self.n = n
+        if n is not None:
+            self.n = n
+        elif brackets is not None:
+            closing = False
+            n = 0
+            nb = 0
+            for c in brackets:
+                if c == ')' and not closing:
+                    nb += 1
+                elif c == '(' and not closing:
+                    n = nb
+                    nb -= 1
+                    closing = True
+                elif c == '(' and closing:
+                    nb -= 1
+                else:
+                    raise ValueError('Wrong sequence of brackets.')
+
+            if nb != 0:
+                raise ValueError('Wrong sequence of brackets.')
+
+            self.n = n
+
         self.content = self.__repr__()
 
     def is_segmark(self):

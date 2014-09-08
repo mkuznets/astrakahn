@@ -8,6 +8,9 @@ class Node:
         self.id = None
         self.name = name
 
+        self.arrivals = []
+        self.departures = []
+
         # Ports of the node itselt
         self.inputs = [{'name': n, 'queue': None, 'node_id': None}
                        for n in inputs]
@@ -21,6 +24,60 @@ class Node:
     @property
     def n_outputs(self):
         return len(self.outputs)
+
+    def send_out(self, mapping, wrap=True):
+
+        for port_id, content in mapping.items():
+            out_msg = comm.DataMessage(content) if wrap else content
+            port = self.outputs[port_id]
+
+            port['to'].put(out_msg)
+            self.departures.append(port['node_id'])
+
+    def send_to_range(self, msg, rng, wrap=True):
+        mapping = {i: msg for i in rng}
+        self.send_out(mapping, wrap)
+
+    def send_to_all(self, msg, wrap=False):
+        rng = range(self.n_outputs)
+        self.send_to_range(msg, rng, wrap)
+
+    def output_available(self, rng=None, space_needed=1):
+        if rng is None:
+            rng = range(self.n_outputs)
+
+        for port_id in rng:
+            if not self.outputs[port_id]['to'].is_space_for(space_needed):
+                return False
+
+        return True
+
+    def get(self, port_id):
+
+        if port_id < 0 or port_id >= self.n_inputs:
+            raise IndexError('Wrong number of input port.')
+
+        port = self.inputs[port_id]
+
+        m = port['queue'].get()
+        self.arrivals.append(port['node_id'])
+
+        return m
+
+    def put(self, port_id, data, wrap=True):
+        msg = comm.DataMessage(data) if wrap else data
+        self.inputs[port_id]['queue'].put(msg)
+
+    def put_back(self, port_id, data, wrap=True):
+        msg = comm.DataMessage(data) if wrap else data
+        self.inputs[port_id]['queue'].put_back(msg)
+
+    def collect_impact(self):
+        impact = (self.departures, self.arrivals)
+        self.departures = []
+        self.arrivals = []
+
+        return impact
 
 
 class Net(Node):
@@ -41,9 +98,6 @@ class Vertex(Node):
 
         # Vertex function that is applied to the input messages.
         self.core = None
-
-        self.arrivals = []
-        self.departures = []
 
     # TODO: the method is run on the assumption that is_ready() returned True,
     # this creates undesirable logical dependence between these methods.
@@ -82,62 +136,8 @@ class Vertex(Node):
 
         return (input_ready, output_ready)
 
-    ##
-    ## Methods that are specific for boxes
-    ## TODO: consider moving to separate class
-    ##
-
     # Flag indicating that the box is processing another message.
     busy = False
-
-    def send_out(self, mapping, wrap=True):
-
-        for port_id, content in mapping.items():
-            out_msg = comm.DataMessage(content) if wrap else content
-            port = self.outputs[port_id]
-
-            port['to'].put(out_msg)
-            self.departures.append(port['node_id'])
-
-    def send_to_range(self, msg, rng, wrap=True):
-        mapping = {i: msg for i in rng}
-        self.send_out(mapping, wrap)
-
-    def send_to_all(self, msg, wrap=False):
-        rng = range(self.n_outputs)
-        self.send_to_range(msg, rng, wrap)
-
-    def output_available(self, rng=None, space_needed=1):
-        if rng is None:
-            rng = range(self.n_outputs)
-
-        for port_id in rng:
-            if not self.outputs[port_id]['to'].is_space_for(space_needed):
-                return False
-
-        return True
-
-    def put_back(self, port_id, data):
-        self.inputs[0]['queue'].put_back(comm.DataMessage(data))
-
-    def get(self, port_id):
-
-        if port_id < 0 or port_id >= self.n_inputs:
-            raise IndexError('Wrong number of input port.')
-
-        port = self.inputs[port_id]
-
-        m = port['queue'].get()
-        self.arrivals.append(port['node_id'])
-
-        return m
-
-    def collect_impact(self):
-        impact = (self.departures, self.arrivals)
-        self.departures = []
-        self.arrivals = []
-
-        return impact
 
 
 class Transductor(Vertex):
