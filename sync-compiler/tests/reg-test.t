@@ -23,6 +23,6 @@ w:
   send (msg, this) => f, this => c
   goto w,start;
 
-  on c.?c(kk)
+  elseon c.?c(kk)
   do b := 1;
 }

@@ -121,14 +121,13 @@ def p_sync(p):
     elif len(p) == 6:
         sync['confs'] = p[3]
         sync['params'] = p[4]
-        sync['body'] = p[5]
+        sync.update(p[5])
 
 def p_body(p):
     '''
     body : LBRACE decls trans RBRACE
     '''
     p[0] = {'decls': p[2], 'trans': p[3]}
-
 
 intexp_args = []
 
@@ -137,7 +136,7 @@ def p_intexp(p):
     intexp : intexp_raw
     '''
     global intexp_args
-    p[0] = 'lambda {}: {}'.format(intexp_args, p[1])
+    p[0] = eval('lambda {}: {}'.format(', '.join(set(intexp_args)), p[1]))
     intexp_args = []
 
 def p_intexp_raw(p):
@@ -348,7 +347,14 @@ def p_trans(p):
     trans : label trans_list
           | trans label trans_list
     '''
-    p[0] = [(p[1], p[2])] if len(p) == 3 else p[1] + [(p[2], p[3])]
+    trans = {}
+    if len(p) == 3:
+        label = p[1]
+        p[0] = {label: p[2]}
+    else:
+        label = p[2]
+        p[0] = p[1]
+        p[0][label] = p[3]
 
 def p_label(p):
     '''
@@ -367,7 +373,7 @@ def p_trans_stmt(p):
     '''
     trans_stmt : on_clause do_clause send_clause goto_clause
     '''
-    print('TRANS_STMT:', list(p))
+    p[0] = {'on': p[1], 'do': p[2], 'send': p[3], 'goto': p[4]}
 
 def p_on_clause(p):
     '''
@@ -471,7 +477,7 @@ def p_pm(p):
        | var ASSIGN intexp
        | var
     '''
-    if len(p) == 1:
+    if len(p) == 2:
         p[0] = '__this__' if p[1] == 'this' else p[1]
     else:
         p[0] = {p[1]: p[3]}
@@ -534,9 +540,111 @@ def p_error(p):
 import ply.yacc as yacc
 yacc.yacc()
 
-with open('tests/reg.t', 'r') as sync_file:
+with open('tests/reg-test.t', 'r') as sync_file:
     sync_code = sync_file.read()
 
 yacc.parse(sync_code)
 
-print(sync)
+###############################################################################
+
+
+class Variable:
+
+    def __init__(self, name):
+        self.name = name
+        self.value = None
+
+    def get(self):
+        return self.value
+
+    def set(self):
+        raise NotImplemented('Set method not implemented for abstract type.')
+
+
+class StateInt(Variable):
+
+    def __init__(self, name, width):
+        super(StateInt, self).__init__(name)
+        self.width = width
+        self.value = 0
+
+    def set(self, value):
+        if value > 0 and value <= 2 ** self.width:
+            self.value = value
+        else:
+            raise RuntimeError('Value is out of range.')
+
+
+class StateEnum(Variable):
+
+    def __init__(self, name, values):
+        super(StateEnum, self).__init__(name)
+        self.values = list(values)
+
+    def set(self, value):
+        if value in values:
+            self.value = value
+        else:
+            raise RuntimeError('Value is out of range.')
+
+class StoreVar(Variable):
+
+    def __init__(self, name, channel):
+        super(StoreVar, self).__init__(name)
+        self.channel = channel
+
+    def set(self, value):
+        self.value = value
+
+
+State = collections.namedtuple('State', 'on elseon')
+TransitionSet = collections.namedtuple('TransitionSet', 'group dotelse')
+Transition = collections.namedtuple('Transition', 'condition guard actions')
+Actions = collections.namedtuple('Actions', 'assign send goto')
+
+automata = {}
+
+for state_name, transitions in sync['trans'].items():
+
+    if state_name not in automata:
+        automata[state_name] = State({}, {})
+    state_obj = automata[state_name]
+
+    for trans in transitions:
+        on = trans['on']
+        channel, condition = on[1].condition
+        guard = on[1].guard
+
+        # Choose proper transition dict: `on' or 'elseon':
+        trans_dict = state_obj[0] if on[0] == 'on' else state_obj[1]
+
+        # Add new channel to transition dict
+        if channel not in trans_dict:
+            trans_dict[channel] = TransitionSet([], None)
+
+        actions = Actions(trans['do'], trans['send'], trans['goto'])
+
+        transition = Transition(condition, guard, actions)
+
+        if condition == '__else__':
+            if trans_dict[channel].dotelse is not None:
+                raise ValueError('More than one .else statements are not '
+                                 'allowed.')
+            # Replace the whole set: group is the same, dotelse is set now.
+            trans_group = trans_dict[channel].group
+            trans_dict[channel] = TransitionSet(trans_group, transition)
+        else:
+            # Simply add new transition to the group.
+            trans_dict[channel].group.append(transition)
+
+for c, t in automata.items():
+    print(c)
+
+    print('on')
+    for i, p in t[0].items():
+        print(i, p)
+
+    print('elseon')
+    for i, p in t[1].items():
+        print(i, p)
+    print()

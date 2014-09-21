@@ -308,3 +308,13 @@ class Copier(Vertex):
             except comm.Empty:
                 continue
         return None
+
+
+class Syncroniser(Vertex):
+
+    def __init__(self, name, inputs, outputs, configs, decls, automata):
+        super(Syncroniser, self).__init__(name, inputs, outputs)
+        self.automata
+
+    def sync_init(self):
+        pass
