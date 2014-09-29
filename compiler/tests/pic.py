@@ -6,6 +6,7 @@ net pic (in | out)
     morph calc_fields (N) { }
     morph interpolate_fields (N) { }
     morph move_particles (N) { }
+    synch zip2 (1, 20)
   connect
     calc_density
      .. (solve_poisson)*

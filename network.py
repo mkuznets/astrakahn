@@ -69,8 +69,8 @@ class Network:
         ## Traverse in depth first.
         #
         if node_type == 'Net':
-            for d in node.decls:
-                self.build(d)
+            for name, decl in node.decls.items():
+                self.build(decl, cores)
 
         ## Adding net constituents.
         #

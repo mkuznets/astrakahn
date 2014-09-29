@@ -1,104 +1,7 @@
 #!/usr/bin/env python3
 
 import collections
-import sys
-sys.path.insert(0,"../..")
 
-if sys.version_info[0] >= 3:
-    raw_input = input
-
-keywords = ['SYNC', 'STORE', 'STATE', 'INT', 'ENUM', 'ON', 'ELSEON', 'ELSE', 'DO',
-            'SEND', 'GOTO', 'THIS', 'NIL']
-
-tokens = keywords + [
-    'ID', 'NUMBER', 'LBRACE', 'RBRACE', 'LPAREN', 'RPAREN', 'LBRACKET',
-    'RBRACKET', 'COLON', 'PLUS', 'MINUS', 'MULT', 'DIVIDE', 'MOD', 'SHL',
-    'SHR', 'LE', 'GE', 'GEQ', 'LEQ', 'EQ', 'NEQ', 'NOT', 'BAND', 'BOR', 'BXOR',
-    'LAND', 'LOR', 'COMMA', 'DOT', 'AT', 'QM', 'TO',
-    'ASSIGN', 'SCOLON', 'EQUAL'
-]
-
-# Tokens
-
-t_LBRACE        = r'{'
-t_RBRACE        = r'}'
-t_LPAREN        = r'\('
-t_RPAREN        = r'\)'
-t_LBRACKET      = r'\['
-t_RBRACKET      = r'\]'
-t_COLON         = r':'
-t_PLUS          = r'\+'
-t_MINUS         = r'-'
-t_MULT          = r'\*'
-t_DIVIDE        = r'/'
-t_MOD           = r'%'
-t_SHL           = r'<<'
-t_SHR           = r'>>'
-t_LE            = r'<'
-t_GE            = r'>'
-t_GEQ           = r'>='
-t_LEQ           = r'<='
-t_EQ            = r'=='
-t_NEQ           = r'!='
-t_NOT           = r'!'
-t_BAND          = r'&'
-t_BOR           = r'\|'
-t_BXOR          = r'\^'
-t_LAND          = r'&&'
-t_LOR           = r'\|\|'
-t_COMMA         = r','
-t_DOT           = r'\.'
-t_AT            = r'@'
-t_QM            = r'\?'
-t_TO            = r'=>'
-t_EQUAL         = r'='
-t_ASSIGN        = r':='
-t_SCOLON        = r';'
-
-keywords_map = {k.lower(): k for k in keywords}
-
-def t_ID(t):
-    r'[A-Za-z_][\w_]*'
-    t.type = keywords_map.get(t.value,"ID")
-    return t
-
-def t_NUMBER(t):
-    r'\d+'
-    t.value = int(t.value)
-    return t
-
-t_ignore = " \t"
-
-def t_newline(t):
-    r'\n+'
-    t.lexer.lineno += t.value.count("\n")
-
-def t_error(t):
-    print("Illegal character '%s'" % t.value[0])
-    t.lexer.skip(1)
-
-# Build the lexer
-import ply.lex as lex
-lex.lex()
-
-
-#with open('tests/reg.t', 'r') as sync_file:
-#    sync_code = sync_file.read()
-
-# Give the lexer some input
-#lexer = lex.lex()
-#lexer.input(sync_code)
-#
-## Tokenize
-#while True:
-#    tok = lexer.token()
-#    if not tok:
-#        break      # No more input
-#    print(tok)
-#
-#quit()
-
-# Parsing rules
 
 precedence = (
     ('left', 'LOR', 'LAND', 'BOR', 'BAND', 'BXOR'),
@@ -108,20 +11,24 @@ precedence = (
     ('right', 'UMINUS'),
 )
 
-sync = {}
+
+ast = {}
+
 
 def p_sync(p):
     '''
-    sync : SYNC ID params body
-         | SYNC ID confs params body
+    sync : SYNCH ID params body
+         | SYNCH ID confs params body
     '''
     if len(p) == 5:
-        sync['params'] = p[3]
-        sync['body'] = p[4]
+        ast['params'] = p[3]
+        ast.update(p[4])
+
     elif len(p) == 6:
-        sync['confs'] = p[3]
-        sync['params'] = p[4]
-        sync.update(p[5])
+        ast['confs'] = p[3]
+        ast['params'] = p[4]
+        ast.update(p[5])
+
 
 def p_body(p):
     '''
@@ -129,7 +36,9 @@ def p_body(p):
     '''
     p[0] = {'decls': p[2], 'trans': p[3]}
 
+
 intexp_args = []
+
 
 def p_intexp(p):
     '''
@@ -138,6 +47,7 @@ def p_intexp(p):
     global intexp_args
     p[0] = eval('lambda {}: {}'.format(', '.join(set(intexp_args)), p[1]))
     intexp_args = []
+
 
 def p_intexp_raw(p):
     '''
@@ -170,6 +80,7 @@ def p_intexp_raw(p):
     else:
         p[0] = ''.join(str(t) for t in list(p)[1:])
 
+
 def p_intexp_id(p):
     '''
     intexp_id : ID
@@ -178,23 +89,28 @@ def p_intexp_id(p):
     intexp_args += p[1]
     p[0] = p[1]
 
+
 def p_empty(p):
     'empty :'
     p[0] = ''
+
 
 def p_chan(p):
     'chan : ID'
     p[0] = p[1]
 
+
 def p_var(p):
     'var : ID'
     p[0] = p[1]
+
 
 def p_chantail(p):
     '''
     chantail : ID
     '''
     p[0] = p[1]
+
 
 def p_shift(p):
     '''
@@ -203,6 +119,7 @@ def p_shift(p):
     '''
     p[0] = p[1]
 
+
 def p_type(p):
     '''
     type : INT LPAREN NUMBER RPAREN
@@ -210,12 +127,14 @@ def p_type(p):
     '''
     p[0] = (p[1], p[3])
 
+
 def p_id_list(p):
     '''
     id_list : ID
             | id_list COMMA ID
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
+
 
 def p_conf(p):
     'conf : ID'
@@ -226,6 +145,7 @@ def p_confs(p):
     'confs : LBRACKET confs_list RBRACKET'
     p[0] = p[2]
 
+
 def p_confs_list(p):
     '''
     confs_list : conf
@@ -233,9 +153,11 @@ def p_confs_list(p):
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
+
 def p_params(p):
     'params : LPAREN inparams BOR outparams RPAREN'
     p[0] = {'in': p[2], 'out': p[4]}
+
 
 def p_inparams(p):
     '''
@@ -246,7 +168,8 @@ def p_inparams(p):
     if len(p) == 2:
         p[0] = [p[1]] if p[1] != '' else []
     elif len(p) == 4:
-         p[0] = p[1] + [p[3]]
+        p[0] = p[1] + [p[3]]
+
 
 def p_inparam(p):
     '''
@@ -254,6 +177,7 @@ def p_inparam(p):
             | chan COLON indepth
     '''
     p[0] = (p[1], None) if len(p) == 2 else (p[1], p[3])
+
 
 def p_indepth(p):
     '''
@@ -265,6 +189,7 @@ def p_indepth(p):
     else:
         p[0] = eval('lambda {} : {}'.format(p[1], p[1]))
 
+
 def p_outparams(p):
     '''
     outparams : outparam
@@ -274,7 +199,8 @@ def p_outparams(p):
     if len(p) == 2:
         p[0] = [p[1]] if p[1] != '' else []
     elif len(p) == 4:
-         p[0] = p[1] + [p[3]]
+        p[0] = p[1] + [p[3]]
+
 
 def p_outparam(p):
     '''
@@ -282,6 +208,7 @@ def p_outparam(p):
              | chan COLON depthexp
     '''
     p[0] = (p[1], None) if len(p) == 2 else (p[1], p[3])
+
 
 def p_depthexp(p):
     '''
@@ -303,6 +230,7 @@ def p_depthexp(p):
         else:
             p[0] = eval('lambda {} {} : {} {} {}'.format(p[1], p[3], *exp))
 
+
 def p_decls(p):
     '''
     decls : storedecls
@@ -316,17 +244,20 @@ def p_decls(p):
     else:
         p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
 
+
 def p_storedecls(p):
     '''
     storedecls : STORE storedecl SCOLON
     '''
     p[0] = (p[1], '', p[2])
 
+
 def p_statedecls(p):
     '''
     statedecls : STATE type statedecl SCOLON
     '''
     p[0] = (p[1], p[2], p[3])
+
 
 def p_storedecl(p):
     '''
@@ -335,6 +266,7 @@ def p_storedecl(p):
     '''
     p[0] = [(p[1], p[3])] if len(p) == 4 else p[1] + [(p[3], p[5])]
 
+
 def p_statedecl(p):
     '''
     statedecl : var
@@ -342,12 +274,12 @@ def p_statedecl(p):
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
+
 def p_trans(p):
     '''
     trans : label trans_list
           | trans label trans_list
     '''
-    trans = {}
     if len(p) == 3:
         label = p[1]
         p[0] = {label: p[2]}
@@ -356,11 +288,13 @@ def p_trans(p):
         p[0] = p[1]
         p[0][label] = p[3]
 
+
 def p_label(p):
     '''
     label : ID COLON
     '''
     p[0] = p[1]
+
 
 def p_trans_list(p):
     '''
@@ -369,11 +303,13 @@ def p_trans_list(p):
     '''
     p[0] = [p[1]] if len(p) == 3 else p[1] + [p[2]]
 
+
 def p_trans_stmt(p):
     '''
     trans_stmt : on_clause do_clause send_clause goto_clause
     '''
     p[0] = {'on': p[1], 'do': p[2], 'send': p[3], 'goto': p[4]}
+
 
 def p_on_clause(p):
     '''
@@ -382,17 +318,18 @@ def p_on_clause(p):
     '''
     p[0] = (p[1], p[2])
 
+
 def p_chancond(p):
     '''
     chancond : primary
              | primary LAND intexp
     '''
-    Condition = collections.namedtuple('Condition', 'condition guard')
 
     if len(p) == 2:
-        p[0] = Condition(p[1], None)
+        p[0] = p[1] + (None, )
     else:
-        p[0] = Condition(p[1], p[3])
+        p[0] = p[1] + (p[3], )
+
 
 def p_primary(p):
     '''
@@ -403,6 +340,7 @@ def p_primary(p):
         p[0] = (p[1], None)
     else:
         p[0] = (p[1], p[3])
+
 
 def p_secondary(p):
     '''
@@ -426,11 +364,13 @@ def p_secondary(p):
             else:
                 p[0] = ('choice', p[2])
 
+
 def p_pattern(p):
     '''
     pattern : LPAREN id_list opttail RPAREN
     '''
     p[0] = (p[2], p[3])
+
 
 def p_opttail(p):
     '''
@@ -438,6 +378,7 @@ def p_opttail(p):
             | LOR ID
     '''
     p[0] = p[2] if len(p) == 3 else None
+
 
 def p_do_clause(p):
     '''
@@ -450,12 +391,14 @@ def p_do_clause(p):
     else:
         p[0] = [p[2]] if len(p) == 3 else p[1] + [p[3]]
 
+
 def p_assign(p):
     '''
     assign : ID ASSIGN intexp
            | ID ASSIGN dataexp
     '''
     p[0] = (p[1], p[3])
+
 
 def p_dataexp(p):
     '''
@@ -464,12 +407,14 @@ def p_dataexp(p):
     '''
     p[0] = (p[1], ) if len(p) == 2 else tuple(p[2])
 
+
 def p_pm_list(p):
     '''
     pm_list : pm
             | pm_list COMMA pm
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
+
 
 def p_pm(p):
     '''
@@ -490,6 +435,7 @@ def p_send_clause(p):
     '''
     p[0] = p[2] if len(p) == 3 else []
 
+
 def p_dispatch_list(p):
     '''
     dispatch_list : dispatch
@@ -497,11 +443,13 @@ def p_dispatch_list(p):
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
+
 def p_dispatch(p):
     '''
     dispatch : msgexp TO chan
     '''
     p[0] = (p[3], p[1])
+
 
 def p_msgexp(p):
     '''
@@ -524,6 +472,7 @@ def p_msgexp(p):
             else:
                 p[0] = ('choice', p[2])
 
+
 def p_goto_clause(p):
     '''
     goto_clause : GOTO id_list
@@ -531,120 +480,35 @@ def p_goto_clause(p):
     '''
     p[0] = p[2] if len(p) > 2 else []
 
+
 def p_error(p):
     if p:
-        print("Syntax error at '%s'" % p.value)
+        print("Syntax error at '%s'" % p.value, p.lineno, ':', p.lexpos)
     else:
         print("Syntax error at EOF")
+    quit()
+
 
 import ply.yacc as yacc
-yacc.yacc()
-
-with open('tests/reg-test.t', 'r') as sync_file:
-    sync_code = sync_file.read()
-
-yacc.parse(sync_code)
-
-###############################################################################
+import sync_lexer as lexer
 
 
-class Variable:
-
-    def __init__(self, name):
-        self.name = name
-        self.value = None
-
-    def get(self):
-        return self.value
-
-    def set(self):
-        raise NotImplemented('Set method not implemented for abstract type.')
+def build():
+    tokens = lexer.tokens
+    return yacc.yacc(debug=0, tabmodule='parsetab/sync')
 
 
-class StateInt(Variable):
-
-    def __init__(self, name, width):
-        super(StateInt, self).__init__(name)
-        self.width = width
-        self.value = 0
-
-    def set(self, value):
-        if value > 0 and value <= 2 ** self.width:
-            self.value = value
-        else:
-            raise RuntimeError('Value is out of range.')
+import inspect
+import sys
 
 
-class StateEnum(Variable):
+def print_grammar():
+    rules = []
 
-    def __init__(self, name, values):
-        super(StateEnum, self).__init__(name)
-        self.values = list(values)
+    for name, obj in inspect.getmembers(sys.modules[__name__]):
+        if inspect.isfunction(obj) and name[:2] == 'p_'\
+                and obj.__doc__ is not None:
+            rule = str(obj.__doc__).strip()
+            rules.append(rule)
 
-    def set(self, value):
-        if value in values:
-            self.value = value
-        else:
-            raise RuntimeError('Value is out of range.')
-
-class StoreVar(Variable):
-
-    def __init__(self, name, channel):
-        super(StoreVar, self).__init__(name)
-        self.channel = channel
-
-    def set(self, value):
-        self.value = value
-
-
-State = collections.namedtuple('State', 'on elseon')
-TransitionSet = collections.namedtuple('TransitionSet', 'group dotelse')
-Transition = collections.namedtuple('Transition', 'condition guard actions')
-Actions = collections.namedtuple('Actions', 'assign send goto')
-
-automata = {}
-
-for state_name, transitions in sync['trans'].items():
-
-    if state_name not in automata:
-        automata[state_name] = State({}, {})
-    state_obj = automata[state_name]
-
-    for trans in transitions:
-        on = trans['on']
-        channel, condition = on[1].condition
-        guard = on[1].guard
-
-        # Choose proper transition dict: `on' or 'elseon':
-        trans_dict = state_obj[0] if on[0] == 'on' else state_obj[1]
-
-        # Add new channel to transition dict
-        if channel not in trans_dict:
-            trans_dict[channel] = TransitionSet([], None)
-
-        actions = Actions(trans['do'], trans['send'], trans['goto'])
-
-        transition = Transition(condition, guard, actions)
-
-        if condition == '__else__':
-            if trans_dict[channel].dotelse is not None:
-                raise ValueError('More than one .else statements are not '
-                                 'allowed.')
-            # Replace the whole set: group is the same, dotelse is set now.
-            trans_group = trans_dict[channel].group
-            trans_dict[channel] = TransitionSet(trans_group, transition)
-        else:
-            # Simply add new transition to the group.
-            trans_dict[channel].group.append(transition)
-
-for c, t in automata.items():
-    print(c)
-
-    print('on')
-    for i, p in t[0].items():
-        print(i, p)
-
-    print('elseon')
-    for i, p in t[1].items():
-        print(i, p)
-    print()
+    print("\n".join(rules))

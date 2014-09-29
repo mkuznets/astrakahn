@@ -1,10 +1,10 @@
 '''
 net Factorial (in | out)
+  synch zip2 [a=1]
 connect
   <in|Test|init,n> .. <n|Gen|terms> .. <init,terms|Reduce|out>
 end
 '''
-
 
 def Test(n):
     '2T'

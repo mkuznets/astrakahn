@@ -15,6 +15,8 @@ Net = collections.namedtuple('Net', 'type name config_params inputs outputs '
 
 Morphism = collections.namedtuple('Morphism', 'name size body override')
 
+Synchroniser = collections.namedtuple('Synchroniser', 'name confs obj')
+
 Override = collections.namedtuple('Override', 'join split synch')
 
 Map = collections.namedtuple('Map', 'box n_inputs')
@@ -75,6 +77,16 @@ def p_id_list(p):
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
+def p_kw_list(p):
+    '''
+    kw_list : ID EQUAL NUMBER
+            | kw_list COMMA ID EQUAL NUMBER
+    '''
+    if len(p) == 4:
+        p[0] = {p[1]: p[3]}
+    else:
+        p[0] = p[1]
+        p[0].update({p[1]: p[3]})
 
 def p_in_chans(p):
     '''
@@ -95,7 +107,10 @@ def p_decls(p):
     decls : decls_list
           | empty
     '''
-    p[0] = p[1]
+    if p[1] != '':
+        p[0] = {d.name: d for d in p[1]}
+    else:
+        p[0] = ''
 
 
 def p_decls_list(p):
@@ -117,9 +132,15 @@ def p_decl(p):
 
 def p_synchroniser(p):
     '''
-    synchroniser : ID
+    synchroniser : SYNCH ID
+                 | SYNCH ID LBRACKET kw_list RBRACKET
     '''
-    p[0] = p[1]
+    name = p[2]
+
+    if len(p) == 3:
+        p[0] = Synchroniser(name, None, None)
+    else:
+        p[0] = Synchroniser(name, p[4], None)
 
 
 def p_morphism(p):
@@ -390,12 +411,12 @@ def p_error(p):
 import sys
 import inspect
 import ply.yacc as yacc
-import lexer
+import net_lexer as lexer
 
 
 def build():
     tokens = lexer.tokens
-    return yacc.yacc(debug=0)
+    return yacc.yacc(debug=0, tabmodule='parsetab/net')
 
 
 def print_grammar():

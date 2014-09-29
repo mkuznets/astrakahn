@@ -4,8 +4,9 @@ import imp
 import os
 import sys
 import inspect
-import lexer as lex
-import parser as parse
+import net_lexer as lex
+import net_parser as parse
+import sync_compiler
 
 sys.path.insert(0, os.path.dirname(__file__) + '/..')
 import network as net
@@ -25,6 +26,7 @@ if __name__ == '__main__':
 
     # Import source code from docstring of source file.
     src_name = os.path.basename(src_file)
+    src_dir = os.path.dirname(src_file)
     src = imp.load_source(src_name, src_file)
     src_code = src.__doc__
 
@@ -38,10 +40,16 @@ if __name__ == '__main__':
     parser.parse(src_code, lexer=lexer)
     ast = parse.ast
 
+    # Look for declared synchronisers and compile them.
+    for name, decl in ast.decls.items():
+        if type(decl).__name__ == 'Synchroniser':
+            sync_obj = sync_compiler.build(src_dir + '/' + decl.name + '.sync')
+            ast.decls[name] = parse.Synchroniser(decl[0], decl[1], sync_obj)
+
     # Network construction.
     network.build(ast, cores)
 
-    # TODO: Must be done autotomatically after network construction.
+    # TODO: Must be done automatically after network construction.
     network.set_root(network.node_id - 1)
 
     net.dump(network, 'tests/a.out')

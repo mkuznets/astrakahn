@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-keywords = ['NET', 'PURENET', 'CONNECT', 'END', 'MORPH', 'WHERE']
+keywords = ['NET', 'PURENET', 'CONNECT', 'END', 'MORPH', 'WHERE', 'SYNCH']
 
 tokens = keywords + [
     'ID', 'NUMBER', 'SERIAL', 'PARALLEL', 'STAR', 'BACKSLASH', 'COMMA', 'VBAR',
