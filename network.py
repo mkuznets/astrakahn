@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
-import components
-
 import os
 import sys
 import networkx as nx
+
+import components
 
 sys.path.insert(0, os.path.dirname(__file__) + '/compiler')
 import utils
@@ -114,6 +114,15 @@ class Network:
             # Handle morph declaration
             # Add morphism net
             pass
+
+        elif node_type == 'Synchroniser':
+
+            inputs = [c[0] for c in node.obj[3]['in']]
+            outputs = [c[0] for c in node.obj[3]['out']]
+
+            sync = components.Syncroniser(node.name, inputs, outputs,
+                                          *node.obj[:3])
+            self.add_vertex(sync)
 
     def build_net(self, ast, cores):
 

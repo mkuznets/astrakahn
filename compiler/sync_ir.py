@@ -126,7 +126,7 @@ def build(sync_ast):
                 # Simply add new transition to the group.
                 trans_dict[channel].group.append(transition)
 
-    return (automata, store_vars, state_vars)
+    return (automata, store_vars, state_vars, sync_ast['params'])
 
 
 def pretty_print(ir):

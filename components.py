@@ -312,9 +312,11 @@ class Copier(Vertex):
 
 class Syncroniser(Vertex):
 
-    def __init__(self, name, inputs, outputs, configs, decls, automata):
+    def __init__(self, name, inputs, outputs, automata, store_vars, state_vars):
         super(Syncroniser, self).__init__(name, inputs, outputs)
-        self.automata
+        self.automata = automata
+        self.state_vars = state_vars
+        self.store_vars = store_vars
 
     def sync_init(self):
         pass
