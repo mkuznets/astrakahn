@@ -52,4 +52,13 @@ if __name__ == '__main__':
     # TODO: Must be done automatically after network construction.
     network.set_root(network.node_id - 1)
 
+    for node_id in network.network.nodes():
+        node = network.node(node_id, True)
+        print(node.id, node, node.name)
+        print(node.inputs)
+        print(node.outputs)
+        print()
+
+    print(network.network.edges())
+
     net.dump(network, 'tests/a.out')

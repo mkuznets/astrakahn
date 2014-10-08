@@ -12,10 +12,10 @@ class Node:
         self.departures = []
 
         # Ports of the node itselt
-        self.inputs = [{'name': n, 'queue': None, 'node_id': None}
-                       for n in inputs]
-        self.outputs = [{'name': n, 'to': None, 'node_id': None}
-                        for n in outputs]
+        self.inputs = [{'id': i, 'name': n, 'queue': None, 'src': None, 'mnt': False}
+                       for i, n in enumerate(inputs)]
+        self.outputs = [{'id': i, 'name': n, 'to': None, 'dst': None, 'mnt': False}
+                        for i, n in enumerate(outputs)]
 
     @property
     def n_inputs(self):
@@ -32,7 +32,7 @@ class Node:
             port = self.outputs[port_id]
 
             port['to'].put(out_msg)
-            self.departures.append(port['node_id'])
+            self.departures.append(port['dst'])
 
     def send_to_range(self, msg, rng, wrap=True):
         mapping = {i: msg for i in rng}
@@ -47,7 +47,9 @@ class Node:
             rng = range(self.n_outputs)
 
         for port_id in rng:
-            if not self.outputs[port_id]['to'].is_space_for(space_needed):
+            to_queue = self.outputs[port_id]['to']
+
+            if to_queue is None or not to_queue.is_space_for(space_needed):
                 return False
 
         return True
@@ -60,7 +62,7 @@ class Node:
         port = self.inputs[port_id]
 
         m = port['queue'].get()
-        self.arrivals.append(port['node_id'])
+        self.arrivals.append(port['src'])
 
         return m
 
@@ -84,6 +86,10 @@ class Net(Node):
     def __init__(self, name, inputs, outputs):
         super(Net, self).__init__(name, inputs, outputs)
 
+    def copy(self):
+        inputs = [p['name'] for p in self.inputs]
+        outputs = [p['name'] for p in self.outputs]
+        return self.__class__(self.name, inputs, outputs)
 
 class Vertex(Node):
 
@@ -98,6 +104,9 @@ class Vertex(Node):
 
         # Vertex function that is applied to the input messages.
         self.core = None
+
+        # Flag indicating that the box is processing another message.
+        self.busy = False
 
     # TODO: the method is run on the assumption that is_ready() returned True,
     # this creates undesirable logical dependence between these methods.
@@ -136,8 +145,10 @@ class Vertex(Node):
 
         return (input_ready, output_ready)
 
-    # Flag indicating that the box is processing another message.
-    busy = False
+    def copy(self):
+        inputs = [p['name'] for p in self.inputs]
+        outputs = [p['name'] for p in self.outputs]
+        return self.__class__(self.name, inputs, outputs, self.core)
 
 
 class Transductor(Vertex):
@@ -320,3 +331,8 @@ class Syncroniser(Vertex):
 
     def sync_init(self):
         pass
+
+    def copy(self):
+        inputs = [p['name'] for p in self.inputs]
+        outputs = [p['name'] for p in self.outputs]
+        return self.__class__(self.name, inputs, outputs, self.automata, self.store_vars, self.state_vars)

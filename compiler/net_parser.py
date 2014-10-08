@@ -110,7 +110,7 @@ def p_decls(p):
     if p[1] != '':
         p[0] = {d.name: d for d in p[1]}
     else:
-        p[0] = ''
+        p[0] = {}
 
 
 def p_decls_list(p):

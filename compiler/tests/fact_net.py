@@ -1,7 +1,11 @@
 '''
 net Factorial (in | out)
+  net Subnet (in | init, terms)
+  connect
+    <in|Test|init,n> .. <n|Gen|terms>
+  end
 connect
-  <in|Test|init,n> .. <n|Gen|terms> .. <init,terms|Reduce|out>
+  Subnet .. <init,terms|Reduce|out>
 end
 '''
 

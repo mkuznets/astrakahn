@@ -2,9 +2,11 @@
 
 import os
 import sys
+import copy
 import networkx as nx
 
 import components
+import communication as comm
 
 sys.path.insert(0, os.path.dirname(__file__) + '/compiler')
 import utils
@@ -29,6 +31,93 @@ class Network:
     def node_busy(self, node_id):
         obj = self.network.node[node_id]['obj']
         return obj.busy
+
+    def copy_subnet(self, source_id):
+        subnet = nx.dfs_tree(self.network, source_id)
+
+        # Copy node attributes from the original network.
+        for node_id in subnet.nodes():
+            node = self.node(node_id)
+            subnet.node[node_id]['obj'] = node['obj'].copy()
+            subnet.node[node_id]['type'] = node['type']
+
+        # New node identifiers.
+
+        # Postorder for later use in rewiring.
+        old_ids = list(nx.dfs_postorder_nodes(subnet, source_id))
+        new_ids = [self.node_id + i for i in range(len(old_ids))]
+        self.node_id += len(old_ids)
+
+        mapping = dict(zip(old_ids, new_ids))
+
+        nx.relabel_nodes(subnet, mapping, copy=False)
+        new_source_id = mapping[source_id]
+
+        # Recover internal wiring.
+
+        mounted_inputs = {}
+        mounted_outputs = {}
+
+        for node_id in old_ids:
+            old_node = self.node(node_id, True)
+
+            new_id = mapping[node_id]
+            new_node = subnet.node[new_id]['obj']
+
+            new_node.id = new_id
+
+            # Recover internal wiring.
+            if subnet.node[new_id]['type'] == 'vertex':
+
+                for p in old_node.inputs:
+                    src = p['src']
+                    if src is not None and src[0] in mapping:
+                        new_node.inputs[p['id']]['src'] = (mapping[src[0]], src[1])
+
+                    if p['mnt']:
+                        new_node.inputs[p['id']]['mnt'] = True
+                        mounted_inputs[p['name']] = new_node.inputs[p['id']]
+
+                for p in old_node.outputs:
+                    dst = p['dst']
+                    if dst is not None and dst[0] in mapping:
+                        new_dst = mapping[dst[0]]
+                        node_dst = subnet.node[new_dst]['obj']
+
+                        new_node.outputs[p['id']]['dst'] = (new_dst, dst[1])
+                        new_node.outputs[p['id']]['to'] = node_dst.inputs[dst[1]]['queue']
+
+                    if p['mnt']:
+                        new_node.outputs[p['id']]['mnt'] = True
+                        mounted_outputs[p['name']] = new_node.outputs[p['id']]
+
+            # Mount ports to net.
+            if subnet.node[new_id]['type'] == 'net':
+
+                inputs = {p['name']: i for i, p in enumerate(new_node.inputs)}
+                for name, p in mounted_inputs.items():
+                    new_node.inputs[inputs[name]] = p
+
+                outputs = {p['name']: i for i, p in enumerate(new_node.outputs)}
+                for name, p in mounted_outputs.items():
+                    new_node.outputs[outputs[name]] = p
+
+                mounted_inputs = {}
+                mounted_outputs = {}
+
+        #for node_id in subnet.nodes():
+        #    node = subnet.node[node_id]['obj']
+        #    print(node.id, node, node.name)
+        #    print(node.inputs)
+        #    print(node.outputs)
+        #    print()
+        #print()
+        #print()
+        #print()
+
+        self.network = nx.disjoint_union(self.network, subnet)
+
+        return new_source_id
 
     ## Network construction methods.
     ##
@@ -66,18 +155,18 @@ class Network:
 
         node_type = type(node).__name__
 
-        ## Traverse in depth first.
-        #
         if node_type == 'Net':
-            for name, decl in node.decls.items():
-                self.build(decl, cores)
 
-        ## Adding net constituents.
-        #
-        if node_type == 'Net':
+            ## Traverse in depth first.
+            scope_ids = []
+            for name, decl in node.decls.items():
+                scope_ids += self.build(decl, cores)
+
+            # Get names of the objects within the scope.
+            scope = {self.node(vertex_id, True).name : vertex_id for vertex_id in scope_ids}
 
             # Add constituents of the net.
-            vertices = self.build_net(node.wiring, cores)
+            vertices = self.build_net(node, cores, scope)
 
             # Allocate net object.
             net = components.Net(node.name, node.inputs, node.outputs)
@@ -93,11 +182,12 @@ class Network:
             # Inputs.
             for i, name in enumerate(node.inputs):
                 if name not in gp['in']:
-                    raise ValueError('There is no port named `{}\''
+                    raise ValueError('There is no port named `{}\' '
                                      'in the net.'.format(name))
                 ports = gp['in'][name]
                 assert(len(ports) == 1)
                 net.inputs[i] = ports[0][1]
+                net.inputs[i]['mnt'] = True
 
             # Outputs.
             for i, name in enumerate(node.outputs):
@@ -107,8 +197,11 @@ class Network:
                 ports = gp['out'][name]
                 assert(len(ports) == 1)
                 net.outputs[i] = ports[0][1]
+                net.outputs[i]['mnt'] = True
 
-            self.add_net(net, vertices)
+            net_id = self.add_net(net, vertices + scope_ids)
+
+            return [net_id]
 
         elif node_type == 'Morphism':
             # Handle morph declaration
@@ -122,10 +215,17 @@ class Network:
 
             sync = components.Syncroniser(node.name, inputs, outputs,
                                           *node.obj[:3])
-            self.add_vertex(sync)
+            vertex_id = self.add_vertex(sync)
 
-    def build_net(self, ast, cores):
+            return [vertex_id]
 
+    def build_net(self, node, cores, scope):
+
+        # Sanity check: declarations and boxes namespaces must be disjount.
+        # TODO: it must be garanteed be the compiler.
+        assert(not set(cores) & set(scope))
+
+        ast = node.wiring
         vertices = []
 
         # Wiring AST: postorder traversal
@@ -137,26 +237,41 @@ class Network:
 
             if ast_node['type'] == 'node':
 
-                # NOTE: only expressions with box names are supported here!!!
-                # TODO: support network names in wiring expressions.
+                name = ast_node['value']
 
-                if ast_node['value'] not in cores:
+                if name in cores:  # Box
+
+                    box_core = cores[name]
+                    # Box properties and constructor.
+                    box = utils.box(box_core.__doc__)
+
+                    # Generate names of ports.
+                    inputs = [(ast_node['inputs'].get(i, '_{}'.format(i)))
+                              for i in range(box.n_inputs)]
+                    outputs = [(ast_node['outputs'].get(i, '_{}'.format(i)))
+                               for i in range(box.n_outputs)]
+
+                    # Create vertex object and insert to network.
+                    vertex = box.box(name, inputs, outputs, box_core)
+                    vertex_id = self.add_vertex(vertex)
+
+                elif name in scope:  # Net, synchroniser or morphism
+                    vertex_id = scope[name]
+                    vertex_id = self.copy_subnet(vertex_id)
+
+                    obj = self.node(vertex_id, True)
+
+                    # Rename ports if needed.
+                    if ast_node['inputs'] or ast_node['inputs']:
+                        # TODO: these loops are not safe unless it is checked
+                        # by compiler that custom inputs are in valid range.
+                        for i, port_name in ast_node['inputs'].items():
+                            obj.inputs[i]['name'] = port_name
+                        for i, port_name in ast_node['outputs'].items():
+                            obj.outputs[i]['name'] = port_name
+
+                else:
                     raise ValueError('Wrong box name.')
-
-                box_core = cores[ast_node['value']]
-
-                # Box properties and constructor.
-                box = utils.box(box_core.__doc__)
-
-                # Generate names of ports.
-                inputs = [(ast_node['inputs'].get(i, '_{}'.format(i)))
-                          for i in range(box.n_inputs)]
-                outputs = [(ast_node['outputs'].get(i, '_{}'.format(i)))
-                           for i in range(box.n_outputs)]
-
-                # Create vertex object and insert to network.
-                vertex = box.box(ast_node['value'], inputs, outputs, box_core)
-                vertex_id = self.add_vertex(vertex)
 
                 stack.append([vertex_id])
                 vertices.append(vertex_id)
@@ -212,8 +327,8 @@ class Network:
         dst_vertex, dst_port = pb
 
         src_port['to'] = dst_port['queue']
-        src_port['node_id'] = dst_vertex
-        dst_port['node_id'] = src_vertex
+        src_port['dst'] = (dst_vertex, dst_port['id'])
+        dst_port['src'] = (src_vertex, src_port['id'])
 
     def get_global_ports(self, vertices):
 
@@ -223,14 +338,14 @@ class Network:
             vertex = self.node(vertex_id)['obj']
 
             for p in vertex.inputs:
-                if p['node_id'] is None:
+                if p['src'] is None:
                     if p['name'] in global_ports['in']:
                         global_ports['in'][p['name']].append((vertex_id, p))
                     else:
                         global_ports['in'][p['name']] = [(vertex_id, p)]
 
             for p in vertex.outputs:
-                if p['node_id'] is None:
+                if p['dst'] is None:
                     if p['name'] in global_ports['out']:
                         global_ports['out'][p['name']].append((vertex_id, p))
                     else:
