@@ -42,6 +42,27 @@ class Node:
         rng = range(self.n_outputs)
         self.send_to_range(msg, rng, wrap)
 
+    def input_available(self, rng=None, any_channel=True):
+        '''
+        Returns True if there's a msg in at least one channel from the range.
+        '''
+        if rng is None:
+            rng = range(self.n_inputs)
+
+        input_ready = True
+
+        for port_id in rng:
+            queue = self.inputs[port_id]['queue']
+
+            ready = not queue.is_empty()
+
+            if ready and any_channel:
+                return True
+            else:
+                input_ready &= ready
+
+        return input_ready
+
     def output_available(self, rng=None, space_needed=1):
         if rng is None:
             rng = range(self.n_outputs)
@@ -136,9 +157,7 @@ class Vertex(Node):
         be available.
         '''
         # Test if there's an input message.
-        input_ready = False
-        for port in self.inputs:
-            input_ready |= (not port['queue'].is_empty())
+        input_ready = self.input_available()
 
         # Test availability of outputs.
         output_ready = self.output_available()
@@ -150,8 +169,10 @@ class Vertex(Node):
         outputs = [p['name'] for p in self.outputs]
         return self.__class__(self.name, inputs, outputs, self.core)
 
+class Box(Vertex):
+    pass
 
-class Transductor(Vertex):
+class Transductor(Box):
 
     def __init__(self, name, inputs, outputs, core):
         super(Transductor, self).__init__(name, inputs, outputs)
@@ -189,18 +210,12 @@ class Printer(Transductor):
 
     def is_ready(self):
 
-        if self.busy:
-            return (False, False)
-
         # Check if there's an input message.
-        input_ready = False
-        for port in self.inputs:
-            input_ready |= (not port['queue'].is_empty())
-
+        input_ready = self.input_available()
         return (input_ready, True)
 
 
-class Inductor(Vertex):
+class Inductor(Box):
 
     def __init__(self, name, inputs, outputs, core):
         super(Inductor, self).__init__(name, inputs, outputs)
@@ -236,7 +251,7 @@ class Inductor(Vertex):
             print(response.action, 'is not implemented.')
 
 
-class DyadicReductor(Vertex):
+class DyadicReductor(Box):
 
     def __init__(self, name, inputs, outputs, core):
         super(DyadicReductor, self).__init__(name, inputs, outputs)
@@ -248,9 +263,7 @@ class DyadicReductor(Vertex):
         #
 
         # Reduction start: 2 messages from both channel are needed.
-        input_ready = True
-        for port in self.inputs:
-            input_ready &= (not port['queue'].is_empty())
+        input_ready = self.input_available(any_channel=False)
 
         ## Test output availability.
         #
@@ -305,7 +318,7 @@ class DyadicReductor(Vertex):
             print(response.action, 'is not implemented.')
 
 
-class Copier(Vertex):
+class Copier(Box):
 
     def __init__(self, name, inputs, outputs, core=None):
         super(Copier, self).__init__(name, inputs, outputs)
@@ -319,20 +332,3 @@ class Copier(Vertex):
             except comm.Empty:
                 continue
         return None
-
-
-class Syncroniser(Vertex):
-
-    def __init__(self, name, inputs, outputs, automata, store_vars, state_vars):
-        super(Syncroniser, self).__init__(name, inputs, outputs)
-        self.automata = automata
-        self.state_vars = state_vars
-        self.store_vars = store_vars
-
-    def sync_init(self):
-        pass
-
-    def copy(self):
-        inputs = [p['name'] for p in self.inputs]
-        outputs = [p['name'] for p in self.outputs]
-        return self.__class__(self.name, inputs, outputs, self.automata, self.store_vars, self.state_vars)

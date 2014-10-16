@@ -1,7 +1,7 @@
 '''
-net Factorial (in | ddd)
+net Factorial (p1, p2| out)
   synch zip2 [a=1]
 connect
-  <in|zip2|out> .. <out|zip2|ddd>
+  <p1, p2|zip2|out>
 end
 '''

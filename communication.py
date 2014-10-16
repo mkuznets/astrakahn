@@ -57,6 +57,11 @@ class Message:
     def is_segmark(self):
         return False
 
+    def union(self, msg):
+        raise NotImplemented('Union method is not implemented for this type '
+                             'of message.')
+
+
 
 class SegmentationMark(Message):
 
@@ -120,7 +125,7 @@ class DataMessage(Message):
     Regular data messages
     """
 
-    def __init__(self, content, mid=0):
+    def __init__(self, content):
         self.content = content
 
     def __repr__(self):
@@ -129,6 +134,15 @@ class DataMessage(Message):
     def __str__(self):
         return self.__repr__()
 
+class Record(DataMessage):
+
+    def __init__(self, content):
+        if type(content) != dict:
+            raise ValueError('Record data must be a dictionary.')
+        super(Record, self).__init__(content)
+
+    def union(self, msg):
+        self.content.update(msg.content)
 
 class Empty(Exception):
     def __init__(self, value):

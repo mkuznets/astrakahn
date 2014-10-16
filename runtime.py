@@ -57,7 +57,6 @@ if __name__ == '__main__':
     root.put(0, 10)
     root.put(0, comm.SegmentationMark(3), wrap=False)
 
-    n.node(0)['obj'].start = True
 
     # Processing pool
     pm = pool.PoolManager(2)
