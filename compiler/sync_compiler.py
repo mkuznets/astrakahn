@@ -17,9 +17,14 @@ def build(src_file):
     # Parse source code.
     lexer = lex.build()
     parser = parse.build()
-    parser.parse(sync_code, lexer=lexer)
-    sync_ast = parse.ast
+    a = parser.parse(sync_code, lexer=lexer)
 
+    a.show(attrnames=True, nodenames=True)
+
+    quit()
+
+
+    sync_ast = parse.ast
     ir = sync_ir.build(sync_ast)
 
     return ir

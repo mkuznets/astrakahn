@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import collections
+import sync_ast
 
 
 precedence = (
@@ -17,35 +17,387 @@ ast = {}
 
 def p_sync(p):
     '''
-    sync : SYNCH ID params body
-         | SYNCH ID confs params body
+    sync : SYNCH ID macros_list_opt LPAREN input_list BOR output_list RPAREN \
+           LBRACE decl_list_opt state_list RBRACE
     '''
-    if len(p) == 5:
-        ast['params'] = p[3]
-        ast.update(p[4])
+    ast = sync_ast.Sync(p[2],
+                        p[3],
+                        sync_ast.PortList(p[5]),
+                        sync_ast.PortList(p[7]),
+                        p[10],
+                        sync_ast.StateList(p[11]))
+    p[0] = ast
 
-    elif len(p) == 6:
-        ast['confs'] = p[3]
-        ast['params'] = p[4]
-        ast.update(p[5])
 
-
-def p_body(p):
+def p_macros_list_opt(p):
     '''
-    body : LBRACE decls trans RBRACE
+    macros_list_opt : LBRACKET id_list RBRACKET
+                | empty
     '''
-    p[0] = {'decls': p[2], 'trans': p[3]}
+    macros = p[2] if p[1] else []
+    p[0] = sync_ast.Macros(macros)
 
+
+def p_id_list(p):
+    '''
+    id_list : ID
+            | id_list COMMA ID
+    '''
+    p[0] = [sync_ast.ID(p[1])] if len(p) == 2 else p[1] + [sync_ast.ID(p[3])]
+
+
+def p_input_list(p):
+    '''
+    input_list : input
+               | input_list COMMA input
+    '''
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
+
+
+def p_input(p):
+    '''
+    input : ID
+          | ID COLON ID
+          | ID COLON NUMBER
+    '''
+    p[0] = sync_ast.Port(p[1], (0 if len(p) == 2 else p[3]))
+
+
+def p_output_list(p):
+    '''
+    output_list : output
+                | output_list COMMA output
+    '''
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
+
+
+def p_output(p):
+    '''
+    output : ID
+          | ID COLON depth_exp
+    '''
+    p[0] = sync_ast.Port(p[1], (0 if len(p) == 2 else p[3]))
+
+
+def p_depth_exp(p):
+    '''
+    depth_exp : NUMBER
+              | ID
+              | ID PLUS NUMBER
+              | ID MINUS NUMBER
+    '''
+    if len(p) == 2:
+        p[0] = p[1]
+
+    else:
+        exp = list(p)[1:]
+        p[0] = eval('lambda {} : {} {} {}'.format(p[1], *exp))
+
+def p_decl_list_opt(p):
+    '''
+    decl_list_opt : decl_list
+                  | empty
+    '''
+    p[0] = p[1] if p[1] != '' else sync_ast.DeclList([])
+
+def p_decl_list(p):
+    '''
+    decl_list : decl
+              | decl_list decl
+    '''
+    decl_list = p[1] if len(p) == 2 else p[1] + p[2]
+    p[0] = sync_ast.DeclList(decl_list)
+
+
+def p_decl(p):
+    '''
+    decl : STORE id_list SCOLON
+         | STATE type id_list SCOLON
+    '''
+    if len(p) == 4:
+        p[0] = [sync_ast.Store(n) for n in p[2]]
+    else:
+        p[0] = [sync_ast.State(p[2], n) for n in p[3]]
+
+
+def p_type(p):
+    '''
+    type : INT LPAREN NUMBER RPAREN
+         | ENUM LPAREN id_list RPAREN
+    '''
+    if p[1] == 'int':
+        p[0] = sync_ast.IntType(p[3])
+    else:
+        p[0] = sync_ast.EnumType(p[3])
+
+
+def p_state_list(p):
+    '''
+    state_list : state
+               | state_list state
+    '''
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
+
+
+def p_state(p):
+    '''
+    state : ID COLON on_scope elseon_scope_list_opt SCOLON
+    '''
+    p[0] = sync_ast.State(p[1], [p[3]] + p[4])
+
+
+def p_on_scope(p):
+    '''
+    on_scope : ON COLON trans_list
+    '''
+    p[0] = sync_ast.TransScope(p[3])
+
+
+def p_elseon_scope_list_opt(p):
+    '''
+    elseon_scope_list_opt : elseon_scope_list
+                          | empty
+    '''
+    p[0] = p[1] if p[1] != '' else []
+
+
+def p_elseon_scope_list(p):
+    '''
+    elseon_scope_list : elseon_scope
+                      | elseon_scope_list elseon_scope
+    '''
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
+
+
+def p_elseon_scope(p):
+    '''
+    elseon_scope : ELSEON COLON trans_list
+    '''
+    p[0] = sync_ast.TransScope(p[1])
+
+
+def p_trans_list(p):
+    '''
+    trans_list : trans_stmt
+               | trans_list trans_stmt
+    '''
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
+
+
+def p_trans_stmt(p):
+    '''
+    trans_stmt : ID condition_opt guard_opt action_list
+    '''
+    p[0] = sync_ast.Trans(p[1], p[2], p[3], p[4])
+
+
+def p_condition_opt(p):
+    '''
+    condition_opt : DOT cond_segmark
+                  | DOT cond_datamsg
+                  | DOT cond_else
+                  | empty
+    '''
+    if len(p) == 2:
+        p[0] = sync_ast.CondEmpty()
+    else:
+        p[0] = p[2]
+
+
+def p_cond_segmark(p):
+    '''
+    cond_segmark : AT ID
+    '''
+    p[0] = sync_ast.CondSegmark(p[2])
+
+
+def p_cond_datamsg(p):
+    '''
+    cond_datamsg : QM ID
+                 | LPAREN id_list tail_opt RPAREN
+                 | QM ID LPAREN id_list tail_opt RPAREN
+    '''
+    if len(p) == 3:
+        p[0] = sync_ast.CondDataMsg(p[2], [], None)
+
+    elif len(p) == 5:
+        p[0] = sync_ast.CondDataMsg(None, p[2], p[3])
+
+    elif len(p) == 7:
+        p[0] = sync_ast.CondDataMsg(p[2], p[4], p[5])
+
+
+def p_tail_opt(p):
+    '''
+    tail_opt : LOR ID
+             | empty
+    '''
+    p[0] = p[2] if len(p) == 3 else None
+
+
+def p_cond_else(p):
+    '''
+    cond_else : ELSE
+    '''
+    p[0] = sync_ast.CondElse()
+
+def p_guard_opt(p):
+    '''
+    guard_opt : int_exp
+              | empty
+    '''
+    if p[1] == '':
+        p[0] = sync_ast.IntExp(lambda : True) if p[1] == '' else p[1]
+
+
+def p_action_list(p):
+    '''
+    action_list : LBRACE set_stmt_opt send_stmt_opt goto_stmt_opt RBRACE
+    '''
+    p[0] = p[2] + p[3] + p[4]
+
+
+def p_set_stmt_opt(p):
+    '''
+    set_stmt_opt : SET assign_list SCOLON
+                 | empty
+    '''
+    p[0] = p[2] if len(p) == 4 else []
+
+
+def p_assign_list(p):
+    '''
+    assign_list : assign
+                | assign_list COMMA assign
+    '''
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
+
+
+def p_assign(p):
+    '''
+    assign : ID ASSIGN int_exp
+           | ID ASSIGN data_exp
+    '''
+    p[0] = sync_ast.Assign(p[1], p[3])
+
+
+def p_data_exp(p):
+    '''
+    data_exp : data
+             | LPAREN data RPAREN
+    '''
+    data = p[1] if len(p) == 2 else p[2]
+    p[0] = sync_ast.DataExp(data)
+
+
+def p_data(p):
+    '''
+    data : item
+         | data LOR item
+    '''
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
+
+
+def p_item(p):
+    '''
+    item : THIS
+         | ID
+         | APOSTR ID
+         | ID COLON rhs
+    '''
+    if len(p) == 2:
+        if p[1] == 'this':
+            p[0] = sync_ast.ItemThis()
+        else:
+            p[0] = sync_ast.ItemVar(p[1])
+
+    elif len(p) == 3:
+        p[0] = sync_ast.ItemExpand(p[2])
+
+    elif len(p) == 4:
+        p[0] = sync_ast.ItemPair(p[1], p[3])
+    else:
+        raise ValueError("Something Wrong!")
+
+
+def p_rhs(p):
+    '''
+    rhs : ID
+        | int_exp
+    '''
+    p[0] = p[1]
+
+
+def p_send_stmt_opt(p):
+    '''
+    send_stmt_opt : SEND dispatch_list SCOLON
+                  | empty
+    '''
+    p[0] = p[2] if len(p) == 4 else []
+
+
+def p_dispatch_list(p):
+    '''
+    dispatch_list : dispatch
+                  | dispatch_list COMMA dispatch
+    '''
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
+
+
+def p_dispatch(p):
+    '''
+    dispatch : msg_exp TO ID
+    '''
+    p[0] = sync_ast.Send(p[1], p[3])
+
+
+def p_msg_exp(p):
+    '''
+    msg_exp : AT int_exp
+            | AT ID
+            | data_msg
+            | NIL
+    '''
+    if len(p) == 2:
+        p[0] = sync_ast.MsgNil() if p[1] == 'nil' else p[1]
+    else:
+        p[0] = sync_ast.ID(p[2]) if type(p[2]) == str else p[2]
+
+def p_data_msg(p):
+    '''
+    data_msg : data_exp
+             | QM ID data_exp
+    '''
+    if len(p) == 2:
+        p[0] = sync_ast.MsgData(None, p[1])
+    else:
+        p[0] = sync_ast.MsgData(p[2], p[3])
+
+
+def p_goto_stmt_opt(p):
+    '''
+    goto_stmt_opt : GOTO id_list SCOLON
+                  | empty
+    '''
+    p[0] = [sync_ast.Goto(n) for n in p[2]] if len(p) == 4 else []
+
+
+def p_empty(p):
+    'empty :'
+    p[0] = ''
+
+###############################
+# INTEXP
 
 intexp_args = []
 
 
-def p_intexp(p):
+def p_int_exp(p):
     '''
-    intexp : intexp_raw
+    int_exp : LBRACKET intexp_raw RBRACKET
     '''
     global intexp_args
-    p[0] = eval('lambda {}: {}'.format(', '.join(set(intexp_args)), p[1]))
+    p[0] = sync_ast.IntExp(eval('lambda {}: {}'.format(', '.join(set(intexp_args)), p[1])))
     intexp_args = []
 
 
@@ -89,396 +441,7 @@ def p_intexp_id(p):
     intexp_args += p[1]
     p[0] = p[1]
 
-
-def p_empty(p):
-    'empty :'
-    p[0] = ''
-
-
-def p_chan(p):
-    'chan : ID'
-    p[0] = p[1]
-
-
-def p_var(p):
-    'var : ID'
-    p[0] = p[1]
-
-
-def p_chantail(p):
-    '''
-    chantail : ID
-    '''
-    p[0] = p[1]
-
-
-def p_shift(p):
-    '''
-    shift : NUMBER
-          | conf
-    '''
-    p[0] = p[1]
-
-
-def p_type(p):
-    '''
-    type : INT LPAREN NUMBER RPAREN
-         | ENUM LPAREN id_list RPAREN
-    '''
-    p[0] = (p[1], p[3])
-
-
-def p_id_list(p):
-    '''
-    id_list : ID
-            | id_list COMMA ID
-    '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_conf(p):
-    'conf : ID'
-    p[0] = p[1]
-
-
-def p_confs(p):
-    'confs : LBRACKET confs_list RBRACKET'
-    p[0] = p[2]
-
-
-def p_confs_list(p):
-    '''
-    confs_list : conf
-               | confs_list COMMA conf
-    '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_params(p):
-    'params : LPAREN inparams BOR outparams RPAREN'
-    p[0] = {'in': p[2], 'out': p[4]}
-
-
-def p_inparams(p):
-    '''
-    inparams : inparam
-             | inparams COMMA inparam
-             | empty
-    '''
-    if len(p) == 2:
-        p[0] = [p[1]] if p[1] != '' else []
-    elif len(p) == 4:
-        p[0] = p[1] + [p[3]]
-
-
-def p_inparam(p):
-    '''
-    inparam : chan
-            | chan COLON indepth
-    '''
-    p[0] = (p[1], None) if len(p) == 2 else (p[1], p[3])
-
-
-def p_indepth(p):
-    '''
-    indepth : var
-            | NUMBER
-    '''
-    if type(p[1]) == int:
-        p[0] = eval('lambda : {}'.format(p[1]))
-    else:
-        p[0] = eval('lambda {} : {}'.format(p[1], p[1]))
-
-
-def p_outparams(p):
-    '''
-    outparams : outparam
-              | outparams COMMA outparam
-              | empty
-    '''
-    if len(p) == 2:
-        p[0] = [p[1]] if p[1] != '' else []
-    elif len(p) == 4:
-        p[0] = p[1] + [p[3]]
-
-
-def p_outparam(p):
-    '''
-    outparam : chan
-             | chan COLON depthexp
-    '''
-    p[0] = (p[1], None) if len(p) == 2 else (p[1], p[3])
-
-
-def p_depthexp(p):
-    '''
-    depthexp : NUMBER
-             | var
-             | var PLUS shift
-             | var MINUS shift
-    '''
-    if len(p) == 2:
-        if type(p[1]) == int:
-            p[0] = eval('lambda : {}'.format(p[1]))
-        else:
-            p[0] = eval('lambda {} : {}'.format(p[1], p[1]))
-
-    elif len(p) == 4:
-        exp = list(p)[1:]
-        if type(p[3]) == int:
-            p[0] = eval('lambda {} : {} {} {}'.format(p[1], *exp))
-        else:
-            p[0] = eval('lambda {} {} : {} {} {}'.format(p[1], p[3], *exp))
-
-
-def p_decls(p):
-    '''
-    decls : storedecls
-          | statedecls
-          | decls storedecls
-          | decls statedecls
-          | empty
-    '''
-    if p[1] == '':
-        p[0] = []
-    else:
-        p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
-
-
-def p_storedecls(p):
-    '''
-    storedecls : STORE storedecl SCOLON
-    '''
-    p[0] = (p[1], '', p[2])
-
-
-def p_statedecls(p):
-    '''
-    statedecls : STATE type statedecl SCOLON
-    '''
-    p[0] = (p[1], p[2], p[3])
-
-
-def p_storedecl(p):
-    '''
-    storedecl : var COLON chantail
-              | storedecl COMMA var COLON chantail
-    '''
-    p[0] = [(p[1], p[3])] if len(p) == 4 else p[1] + [(p[3], p[5])]
-
-
-def p_statedecl(p):
-    '''
-    statedecl : var
-              | statedecl COMMA var
-    '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_trans(p):
-    '''
-    trans : label trans_list
-          | trans label trans_list
-    '''
-    if len(p) == 3:
-        label = p[1]
-        p[0] = {label: p[2]}
-    else:
-        label = p[2]
-        p[0] = p[1]
-        p[0][label] = p[3]
-
-
-def p_label(p):
-    '''
-    label : ID COLON
-    '''
-    p[0] = p[1]
-
-
-def p_trans_list(p):
-    '''
-    trans_list : trans_stmt SCOLON
-               | trans_list trans_stmt SCOLON
-    '''
-    p[0] = [p[1]] if len(p) == 3 else p[1] + [p[2]]
-
-
-def p_trans_stmt(p):
-    '''
-    trans_stmt : on_clause do_clause send_clause goto_clause
-    '''
-    p[0] = {'on': p[1], 'do': p[2], 'send': p[3], 'goto': p[4]}
-
-
-def p_on_clause(p):
-    '''
-    on_clause : ON chancond
-              | ELSEON chancond
-    '''
-    p[0] = (p[1], p[2])
-
-
-def p_chancond(p):
-    '''
-    chancond : primary
-             | primary LAND intexp
-    '''
-
-    if len(p) == 2:
-        p[0] = p[1] + (None, )
-    else:
-        p[0] = p[1] + (p[3], )
-
-
-def p_primary(p):
-    '''
-    primary : chan DOT secondary
-            | chan
-    '''
-    if len(p) == 2:
-        p[0] = (p[1], None)
-    else:
-        p[0] = (p[1], p[3])
-
-
-def p_secondary(p):
-    '''
-    secondary : AT ID
-              | ELSE
-              | QM ID
-              | pattern
-              | QM ID pattern
-    '''
-    if len(p) == 2:
-        if p[1] == 'else':
-            p[0] = '__else__'
-        else:
-            p[0] = ('pattern', p[1])
-    else:
-        if p[1] == '@':
-            p[0] = ('segmark', p[2])
-        elif p[1] == '?':
-            if len(p) == 4:
-                p[0] = ('choice_pattern', p[2], p[3])
-            else:
-                p[0] = ('choice', p[2])
-
-
-def p_pattern(p):
-    '''
-    pattern : LPAREN id_list opttail RPAREN
-    '''
-    p[0] = (p[2], p[3])
-
-
-def p_opttail(p):
-    '''
-    opttail : empty
-            | LOR ID
-    '''
-    p[0] = p[2] if len(p) == 3 else None
-
-
-def p_do_clause(p):
-    '''
-    do_clause : DO assign
-              | do_clause COMMA assign
-              | empty
-    '''
-    if p[1] == '':
-        p[0] = []
-    else:
-        p[0] = [p[2]] if len(p) == 3 else p[1] + [p[3]]
-
-
-def p_assign(p):
-    '''
-    assign : ID ASSIGN intexp
-           | ID ASSIGN dataexp
-    '''
-    p[0] = (p[1], p[3])
-
-
-def p_dataexp(p):
-    '''
-    dataexp : pm
-            | LPAREN pm_list RPAREN
-    '''
-    p[0] = (p[1], ) if len(p) == 2 else tuple(p[2])
-
-
-def p_pm_list(p):
-    '''
-    pm_list : pm
-            | pm_list COMMA pm
-    '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_pm(p):
-    '''
-    pm : THIS
-       | var ASSIGN intexp
-       | var
-    '''
-    if len(p) == 2:
-        p[0] = '__this__' if p[1] == 'this' else p[1]
-    else:
-        p[0] = {p[1]: p[3]}
-
-
-def p_send_clause(p):
-    '''
-    send_clause : SEND dispatch_list
-                | empty
-    '''
-    p[0] = p[2] if len(p) == 3 else []
-
-
-def p_dispatch_list(p):
-    '''
-    dispatch_list : dispatch
-                  | dispatch_list COMMA dispatch
-    '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_dispatch(p):
-    '''
-    dispatch : msgexp TO chan
-    '''
-    p[0] = (p[3], p[1])
-
-
-def p_msgexp(p):
-    '''
-    msgexp : AT intexp
-           | dataexp
-           | QM ID dataexp
-           | NIL
-    '''
-    if len(p) == 2:
-        if p[1] == 'nil':
-            p[0] = '__nil__'
-        else:
-            p[0] = ('data', p[1])
-    else:
-        if p[1] == '@':
-            p[0] = ('segmark', p[2])
-        elif p[1] == '?':
-            if len(p) == 4:
-                p[0] = ('choice_data', p[2], p[3])
-            else:
-                p[0] = ('choice', p[2])
-
-
-def p_goto_clause(p):
-    '''
-    goto_clause : GOTO id_list
-                | empty
-    '''
-    p[0] = p[2] if len(p) > 2 else []
+###############################
 
 
 def p_error(p):
@@ -501,14 +464,24 @@ def build():
 import inspect
 import sys
 
+def linenumber_of_member(m):
+    try:
+        return m[1].__code__.co_firstlineno
+    except AttributeError:
+        return -1
 
 def print_grammar():
     rules = []
 
-    for name, obj in inspect.getmembers(sys.modules[__name__]):
+    members = inspect.getmembers(sys.modules[__name__])
+    members = sorted(members, key=linenumber_of_member)
+    #print(members)
+    #return
+
+    for name, obj in members:
         if inspect.isfunction(obj) and name[:2] == 'p_'\
                 and obj.__doc__ is not None:
             rule = str(obj.__doc__).strip()
             rules.append(rule)
 
-    print("\n".join(rules))
+    print("\n\n".join(rules))

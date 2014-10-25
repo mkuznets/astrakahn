@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
-keywords = ['SYNCH', 'STORE', 'STATE', 'INT', 'ENUM', 'ON', 'ELSEON', 'ELSE', 'DO',
-            'SEND', 'GOTO', 'THIS', 'NIL']
+keywords = ['SYNCH', 'STORE', 'STATE', 'INT', 'ENUM', 'ON', 'ELSEON', 'ELSE',
+            'SET', 'SEND', 'GOTO', 'THIS', 'NIL']
 
 tokens = keywords + [
     'ID', 'NUMBER', 'LBRACE', 'RBRACE', 'LPAREN', 'RPAREN', 'LBRACKET',
     'RBRACKET', 'COLON', 'PLUS', 'MINUS', 'MULT', 'DIVIDE', 'MOD', 'SHL',
     'SHR', 'LE', 'GE', 'GEQ', 'LEQ', 'EQ', 'NEQ', 'NOT', 'BAND', 'BOR', 'BXOR',
     'LAND', 'LOR', 'COMMA', 'DOT', 'AT', 'QM', 'TO',
-    'ASSIGN', 'SCOLON'
+    'ASSIGN', 'SCOLON', 'APOSTR'
 ]
 
 # Tokens
@@ -44,8 +44,9 @@ t_DOT           = r'\.'
 t_AT            = r'@'
 t_QM            = r'\?'
 t_TO            = r'=>'
-t_ASSIGN        = r':='
+t_ASSIGN        = r'='
 t_SCOLON        = r';'
+t_APOSTR        = r"\'"
 
 keywords_map = {k.lower(): k for k in keywords}
 
@@ -60,6 +61,12 @@ def t_NUMBER(t):
     return t
 
 t_ignore = " \t"
+
+# Comment (C-Style)
+def t_COMMENT(t):
+    r'/\*(.|\n)*?\*/'
+    t.lexer.lineno += t.value.count('\n')
+    return t
 
 def t_newline(t):
     r'\n+'
