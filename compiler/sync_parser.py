@@ -60,7 +60,7 @@ def p_input(p):
           | ID COLON ID
           | ID COLON NUMBER
     '''
-    p[0] = sync_ast.Port(p[1], (0 if len(p) == 2 else p[3]))
+    p[0] = sync_ast.Port(p[1], (None if len(p) == 2 else p[3]))
 
 
 def p_output_list(p):
@@ -76,7 +76,7 @@ def p_output(p):
     output : ID
           | ID COLON depth_exp
     '''
-    p[0] = sync_ast.Port(p[1], (0 if len(p) == 2 else p[3]))
+    p[0] = sync_ast.Port(p[1], (None if len(p) == 2 else p[3]))
 
 
 def p_depth_exp(p):
@@ -91,14 +91,22 @@ def p_depth_exp(p):
 
     else:
         exp = list(p)[1:]
-        p[0] = eval('lambda {} : {} {} {}'.format(p[1], *exp))
+        code = 'lambda {} : {} {} {}'.format(p[1], *exp)
+
+        try:
+            p[0] = eval(code)
+        except SyntaxError as err:
+            print('depth_exp:', err)
+            quit()
+
+        p[0].code = code
 
 def p_decl_list_opt(p):
     '''
     decl_list_opt : decl_list
                   | empty
     '''
-    p[0] = p[1] if p[1] != '' else sync_ast.DeclList([])
+    p[0] = sync_ast.DeclList(p[1]) if p[1] != '' else sync_ast.DeclList([])
 
 def p_decl_list(p):
     '''
@@ -106,7 +114,7 @@ def p_decl_list(p):
               | decl_list decl
     '''
     decl_list = p[1] if len(p) == 2 else p[1] + p[2]
-    p[0] = sync_ast.DeclList(decl_list)
+    p[0] = decl_list
 
 
 def p_decl(p):
@@ -115,9 +123,9 @@ def p_decl(p):
          | STATE type id_list SCOLON
     '''
     if len(p) == 4:
-        p[0] = [sync_ast.Store(n) for n in p[2]]
+        p[0] = [sync_ast.StoreVar(n.name) for n in p[2]]
     else:
-        p[0] = [sync_ast.State(p[2], n) for n in p[3]]
+        p[0] = [sync_ast.StateVar(n.name, p[2]) for n in p[3]]
 
 
 def p_type(p):
@@ -141,7 +149,7 @@ def p_state_list(p):
 
 def p_state(p):
     '''
-    state : ID COLON on_scope elseon_scope_list_opt SCOLON
+    state : ID LBRACE on_scope elseon_scope_list_opt RBRACE
     '''
     p[0] = sync_ast.State(p[1], [p[3]] + p[4])
 
@@ -173,7 +181,7 @@ def p_elseon_scope(p):
     '''
     elseon_scope : ELSEON COLON trans_list
     '''
-    p[0] = sync_ast.TransScope(p[1])
+    p[0] = sync_ast.TransScope(p[3])
 
 
 def p_trans_list(p):
@@ -243,11 +251,22 @@ def p_cond_else(p):
 
 def p_guard_opt(p):
     '''
-    guard_opt : int_exp
+    guard_opt : BAND int_exp
               | empty
     '''
     if p[1] == '':
-        p[0] = sync_ast.IntExp(lambda : True) if p[1] == '' else p[1]
+        code = 'lambda : True'
+
+        try:
+            f = eval(code)
+        except SyntaxError as err:
+            print('guard_opt:', err)
+            quit()
+
+        f.code = code
+        p[0] = sync_ast.IntExp(f)
+    else:
+        p[0] = p[2]
 
 
 def p_action_list(p):
@@ -397,7 +416,16 @@ def p_int_exp(p):
     int_exp : LBRACKET intexp_raw RBRACKET
     '''
     global intexp_args
-    p[0] = sync_ast.IntExp(eval('lambda {}: {}'.format(', '.join(set(intexp_args)), p[1])))
+    code = 'lambda {}: {}'.format(', '.join(set(intexp_args)), p[2])
+
+    try:
+        f = eval(code)
+    except SyntaxError as err:
+        print('guard_opt:', err, "\n", code)
+        quit()
+
+    f.code = code
+    p[0] = sync_ast.IntExp(f)
     intexp_args = []
 
 
@@ -430,6 +458,10 @@ def p_intexp_raw(p):
     if len(p) == 2:
         p[0] = p[1]
     else:
+        if p[2] == '&&': p[2] = ' and '
+        if p[2] == '||': p[2] = ' or '
+        if p[1] == '!': p[1] = ' not '
+
         p[0] = ''.join(str(t) for t in list(p)[1:])
 
 
@@ -456,9 +488,9 @@ import ply.yacc as yacc
 import sync_lexer as lexer
 
 
-def build():
+def build(start):
     tokens = lexer.tokens
-    return yacc.yacc(debug=0, tabmodule='parsetab/sync')
+    return yacc.yacc(start=start, debug=0, tabmodule='parsetab/sync')
 
 
 import inspect

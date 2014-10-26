@@ -1,0 +1,6 @@
+# Minimal test
+
+synch minimal (a | b)
+{
+  bar { on: a {} }
+}

@@ -7,8 +7,8 @@ tokens = keywords + [
     'ID', 'NUMBER', 'LBRACE', 'RBRACE', 'LPAREN', 'RPAREN', 'LBRACKET',
     'RBRACKET', 'COLON', 'PLUS', 'MINUS', 'MULT', 'DIVIDE', 'MOD', 'SHL',
     'SHR', 'LE', 'GE', 'GEQ', 'LEQ', 'EQ', 'NEQ', 'NOT', 'BAND', 'BOR', 'BXOR',
-    'LAND', 'LOR', 'COMMA', 'DOT', 'AT', 'QM', 'TO',
-    'ASSIGN', 'SCOLON', 'APOSTR'
+    'LAND', 'LOR', 'COMMA', 'DOT', 'AT', 'QM', 'TO', 'ASSIGN', 'SCOLON',
+    'APOSTR'
 ]
 
 # Tokens
@@ -47,6 +47,7 @@ t_TO            = r'=>'
 t_ASSIGN        = r'='
 t_SCOLON        = r';'
 t_APOSTR        = r"\'"
+t_ignore_COMMENT = r'\#.*'
 
 keywords_map = {k.lower(): k for k in keywords}
 
@@ -63,10 +64,10 @@ def t_NUMBER(t):
 t_ignore = " \t"
 
 # Comment (C-Style)
-def t_COMMENT(t):
+def t_cppcomment(t):
     r'/\*(.|\n)*?\*/'
     t.lexer.lineno += t.value.count('\n')
-    return t
+    #t.lexer.skip(1)
 
 def t_newline(t):
     r'\n+'

@@ -196,7 +196,7 @@ class DeclList(Node):
 
     attr_names = ()
 
-class Store(Node):
+class StoreVar(Node):
     def __init__(self, name, coord=None):
         self.name = name
         self.coord = coord
@@ -207,10 +207,10 @@ class Store(Node):
 
     attr_names = ('name',)
 
-class State(Node):
-    def __init__(self, type, name, coord=None):
-        self.type = type
+class StateVar(Node):
+    def __init__(self, name, type, coord=None):
         self.name = name
+        self.type = type
         self.coord = coord
 
     def children(self):

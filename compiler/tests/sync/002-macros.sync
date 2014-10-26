@@ -1,0 +1,6 @@
+# Optional non-empty list of macros
+
+synch macros [one, TWO, Three, four] (a | b)
+{
+  bar { on: a {} }
+}
