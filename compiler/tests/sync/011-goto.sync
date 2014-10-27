@@ -1,0 +1,14 @@
+# Goto statement.
+
+synch goto_stmt (a | d)
+{
+  foo {
+    on:
+      a {
+	    goto a;
+      }
+      b {
+	    goto aA, bb, cC, d_o;
+      }
+  }
+}

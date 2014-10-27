@@ -475,15 +475,17 @@ class MsgNil(Node):
     attr_names = ()
 
 class Goto(Node):
-    def __init__(self, state, coord=None):
-        self.state = state
+    def __init__(self, states, coord=None):
+        self.states = states
         self.coord = coord
 
     def children(self):
         nodelist = []
+        for i, child in enumerate(self.states or []):
+            nodelist.append(("states[%d]" % i, child))
         return tuple(nodelist)
 
-    attr_names = ('state',)
+    attr_names = ()
 
 class ID(Node):
     def __init__(self, name, coord=None):

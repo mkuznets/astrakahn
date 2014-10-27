@@ -1,0 +1,38 @@
+# Send statement.
+
+synch send_stmt (a | d)
+{
+  foo {
+    on:
+      a {
+	    send nil => aa;
+      }
+      b {
+	    send @d => bb;
+      }
+      c {
+	    send @[k * 4 & m] => cc;
+      }
+      d {
+		send j || 's => dd;
+      }
+      e {
+		send ?alt m || k: v => ee;
+      }
+      f {
+		send ?alt (k : v || 'foo || this || m: [k + v] || j) => ff;
+      }
+      g {
+		send ?alt (a: [b & c * k] || this || k : v || j || 'bar) => gg;
+      }
+	  h {
+		send nil => aa,
+			 @d => bb,
+             @[k * 4 & m] => cc,
+			 j || 's => dd,
+			 ?alt m || k: v => ee,
+			 ?alt (k : v || 'foo || this || m: [k + v] || j) => ff,
+			 ?alt (a: [b & c * k] || this || k : v || j || 'bar) => gg;
+	  }
+  }
+}

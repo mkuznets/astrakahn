@@ -289,7 +289,7 @@ def p_assign_list(p):
     assign_list : assign
                 | assign_list COMMA assign
     '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
 
 def p_assign(p):
@@ -344,7 +344,7 @@ def p_rhs(p):
     rhs : ID
         | int_exp
     '''
-    p[0] = p[1]
+    p[0] = sync_ast.ID(p[1]) if type(p[1]) == str else p[1]
 
 
 def p_send_stmt_opt(p):
@@ -360,7 +360,7 @@ def p_dispatch_list(p):
     dispatch_list : dispatch
                   | dispatch_list COMMA dispatch
     '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
 
 def p_dispatch(p):
@@ -380,7 +380,8 @@ def p_msg_exp(p):
     if len(p) == 2:
         p[0] = sync_ast.MsgNil() if p[1] == 'nil' else p[1]
     else:
-        p[0] = sync_ast.ID(p[2]) if type(p[2]) == str else p[2]
+        depth = sync_ast.ID(p[2]) if type(p[2]) == str else p[2]
+        p[0] = sync_ast.MsgSegmark(depth)
 
 def p_data_msg(p):
     '''
@@ -398,7 +399,8 @@ def p_goto_stmt_opt(p):
     goto_stmt_opt : GOTO id_list SCOLON
                   | empty
     '''
-    p[0] = [sync_ast.Goto(n) for n in p[2]] if len(p) == 4 else []
+    states = [n for n in p[2]] if len(p) == 4 else []
+    p[0] = [sync_ast.Goto(states)]
 
 
 def p_empty(p):

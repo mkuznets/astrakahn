@@ -1,0 +1,22 @@
+# Set statement.
+
+synch set_stmt (a | d)
+{
+  foo {
+    on:
+      a {
+	    set aa = [a + 4 - b];
+      }
+      b {
+	    set bb = this,
+			cc = i,
+			dd = 'var,
+			ee = z : y,
+			ff = z: [y + w];
+      }
+      c {
+	    set gg = k : v || 'foo || this || m: [k + v] || j,
+			hh = (a: [b & c * k] || this || k : v || j || 'bar), ii = [4 * f & s];
+      }
+  }
+}
