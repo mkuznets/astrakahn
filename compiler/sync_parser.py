@@ -60,7 +60,12 @@ def p_input(p):
           | ID COLON ID
           | ID COLON NUMBER
     '''
-    p[0] = sync_ast.Port(p[1], (None if len(p) == 2 else p[3]))
+    if len(p) == 4:
+        depth = sync_ast.ID(p[3]) if type(p[3]) == 'str' else sync_ast.NUMBER(p[3])
+    else:
+        depth = sync_ast.DepthNone()
+
+    p[0] = sync_ast.Port(p[1], depth)
 
 
 def p_output_list(p):
@@ -74,9 +79,9 @@ def p_output_list(p):
 def p_output(p):
     '''
     output : ID
-          | ID COLON depth_exp
+           | ID COLON depth_exp
     '''
-    p[0] = sync_ast.Port(p[1], (None if len(p) == 2 else p[3]))
+    p[0] = sync_ast.Port(p[1], (sync_ast.DepthNone() if len(p) == 2 else p[3]))
 
 
 def p_depth_exp(p):
@@ -87,19 +92,10 @@ def p_depth_exp(p):
               | ID MINUS NUMBER
     '''
     if len(p) == 2:
-        p[0] = p[1]
+        p[0] = sync_ast.ID(p[1]) if type(p[1]) == 'str' else sync_ast.NUMBER(p[1])
 
     else:
-        exp = list(p)[1:]
-        code = 'lambda {} : {} {} {}'.format(p[1], *exp)
-
-        try:
-            p[0] = eval(code)
-        except SyntaxError as err:
-            print('depth_exp:', err)
-            quit()
-
-        p[0].code = code
+        p[0] = sync_ast.DepthExp(p[1], p[3] if p[2] == '+' else -p[3])
 
 def p_decl_list_opt(p):
     '''

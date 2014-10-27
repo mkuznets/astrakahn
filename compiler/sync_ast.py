@@ -179,9 +179,31 @@ class Port(Node):
 
     def children(self):
         nodelist = []
+        if self.depth is not None: nodelist.append(("depth", self.depth))
         return tuple(nodelist)
 
-    attr_names = ('name','depth',)
+    attr_names = ('name',)
+
+class DepthExp(Node):
+    def __init__(self, depth, shift, coord=None):
+        self.depth = depth
+        self.shift = shift
+        self.coord = coord
+
+    def children(self):
+        nodelist = []
+        return tuple(nodelist)
+
+    attr_names = ('depth','shift',)
+
+class DepthNone(Node):
+    def __init__(self, coord=None):
+        self.coord = coord
+
+    def children(self):
+        return ()
+
+    attr_names = ()
 
 class DeclList(Node):
     def __init__(self, decls, coord=None):
@@ -497,4 +519,15 @@ class ID(Node):
         return tuple(nodelist)
 
     attr_names = ('name',)
+
+class NUMBER(Node):
+    def __init__(self, value, coord=None):
+        self.value = value
+        self.coord = coord
+
+    def children(self):
+        nodelist = []
+        return tuple(nodelist)
+
+    attr_names = ('value',)
 
