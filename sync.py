@@ -8,24 +8,33 @@ import collections
 
 class Sync(components.Vertex):
 
-    def __init__(self):
+    def __init__(self, decls, states):
 
         # Mapping from channel names to port ids.
         self.input_index = {p['name']: i for i, p in enumerate(self.inputs)}
         self.output_index = {p['name']: i for i, p in enumerate(self.outputs)}
 
         self.this = {'channel': None, 'msg': None}
+        self.variables = {}
+        self.aliases = {}
 
-        self.state_vars = []
-        self.store_vars = []
-        self.aliases = []
+        self.states = {s.name: s for s in states}
 
-        self.states = {}  # {'state1': SyncState, }
+        # Initial state
         self.state_name = 'start'
+
+        # Compiler must guarantee the presence of the inital state.
+        assert(self.state_name in self.states)
 
         # Inputs from which messages can be fetched at the current
         # state (the result of .is_ready() execution).
-        self.inputs_ready = set()
+        self.inputs_ready = None
+
+        # Initiate transition with variables.
+        for name, state in self.states.items():
+            for channel, handler in state.handlers.items():
+                for trans in handler.transitions:
+                    trans.init_data(self.this, self.variables, self.variables)
 
     @property
     def channel_handler(self):
@@ -158,46 +167,47 @@ class Sync(components.Vertex):
 
 class SyncState:
 
-    def __init__(self):
+    def __init__(self, handlers):
 
-        self.moves = {'chA': SyncChannelHandler, }
+        self.name = ''
+        self.handlers = {h.channel_name: h for h in handlers}
 
     def inputs(self):
-        return self.moves.keys()
+        return self.handlers.keys()
 
     def impact(self):
         outputs_impacted = set()
 
-        for channel, handler in self.moves.items():
+        for channel, handler in self.handlers.items():
             outputs_impacted |= handler.impact()
 
         return outputs_impacted
 
     def __getitem__(self, channel):
-        return self.moves[channel]
+        return self.handlers[channel]
 
     def __contains__(self, channel):
-        return channel in self.moves
+        return channel in self.handlers
 
 
 class SyncChannelHandler:
 
-    def __init__(self):
+    def __init__(self, transitions):
 
         self.channel_name = None
         self.counter = 0
 
-        self.transition_groups = collections.deque()  # deque[SyncTransitionGroup, ...]
+        self.transitions = transitions
 
     def impact(self):
         '''
         Collect outputs to which messages can be sent while performing
-        any possible transition caused by a message from the channel.
+        transition from the group.
         '''
         outputs_impacted = set()
 
-        for group in self.transition_groups:
-            outputs_impacted |= group.impact()
+        for trans in self.transitions:
+            outputs_impacted |= trans.impact()
 
         return outputs_impacted
 
@@ -205,55 +215,51 @@ class SyncChannelHandler:
         self.counter += 1
 
     def choose_transition(self):
-
-        # `on' has higher proirity than `elseon'. Thus, if a handler has both
-        # `on' and `elseon' transition group, the latter one will never be
-        # executed.
-        group = self.transition_groups[0]
-
-        return group.choose_transition()
-
-
-class SyncTransitionGroup:
-
-    def __init__(self):
-
-        self.type = None  # on|elseon
-        self.group = [SyncTransition, ]
-        self.else_transition = None
-
-    def impact(self):
         '''
-        Collect outputs to which messages can be sent while performing
-        transition from the group.
+        Choose transitions that satisfy conditions and select the least
+        frequently taken one.
         '''
 
-        outputs_impacted = set()
+        scopes = {}
 
-        for transition in self.group:
-            outputs_impacted |= transition.impact()
+        # Group transition by scopes.
+        for trans in self.transitions:
+            scopes[trans.scope] = scopes.get(trans.scope, []) + [trans]
 
-        return outputs_impacted
+        for i in sorted(scopes.keys()):
+            scope = scopes[i]
 
-    def choose_transition(self):
+            # Collect valid transitions.
+            #
+            for trans in scope:
+                valid_trans = []
+                fallback = None
 
-        if self.type == 'elseon':
-            # Select the first transition that satisfy conditions.
+                if trans.is_fallback() and trans.test():
+                    # .else condition.
+                    fallback = trans
+                    continue
+                elif trans.test():
+                    # test condition.
+                    valid_trans.append(trans)
 
-            for trans in self.group:
-                if trans.test():
-                    return trans
+            # Select transition from the list of valid ones.
+            #
+            if not (valid_trans or fallback):
+                # No transition available, go to next scope.
+                continue
 
-        elif self.type == 'on':
-            # Choose transitions that satisfy conditions and select the least
-            # frequently taken one.
+            elif not valid_trans and fallback:
+                # Pick .else transition if nothing else available.
+                return fallback
 
-            valid_transitions = [trans for trans in self.group if trans.test()]
-            stats = {trans.counter: trans for trans in valid_transitions}
+            elif valid_trans:
+                stats = {t.counter: t for t in valid_trans}
+                trans = min(stats, stats.get)
+                return trans
 
-            trans = min(stats, stats.get)
-
-            return trans
+        # No available transitions: do nothing (go to the same state).
+        return None
 
 
 class SyncTransition:
@@ -261,19 +267,18 @@ class SyncTransition:
     def __init__(self):
 
         self.channel = None
-        self.order = None
+        self.scope = None
 
         self.condition = None  # <simple stmt>
         self.guard = None  # <simple stmt>
 
         self.assign = []
         self.send = []
-        self.goto = ['state_name1', ]
+        self.goto = []
 
         # References to the sync's data structures
         self.this = None
-        self.state_vars = None
-        self.store_vars = None
+        self.variables = None
         self.aliases = None
 
         # Aliases from the condition test. If the transition is taken, they
@@ -282,13 +287,18 @@ class SyncTransition:
 
         self.counter = 0
 
+    def init_data(this, variables, aliases):
+        self.this = this
+        self.variables = variables
+        self.aliases = aliases
+
     def test(self):
         self.aliases_local.clear()
 
         if self.test_condition() and self.test_guard():
             return True
         else:
-            self.aliases_cache.clear()
+            self.aliases_local.clear()
             return False
 
     def test_condition(self):
