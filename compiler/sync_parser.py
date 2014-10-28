@@ -17,25 +17,15 @@ ast = {}
 
 def p_sync(p):
     '''
-    sync : SYNCH ID macros_list_opt LPAREN input_list BOR output_list RPAREN \
+    sync : SYNCH ID LPAREN input_list BOR output_list RPAREN \
            LBRACE decl_list_opt state_list RBRACE
     '''
     ast = sync_ast.Sync(p[2],
-                        p[3],
-                        sync_ast.PortList(p[5]),
-                        sync_ast.PortList(p[7]),
-                        p[10],
-                        sync_ast.StateList(p[11]))
+                        sync_ast.PortList(p[4]),
+                        sync_ast.PortList(p[6]),
+                        p[9],
+                        sync_ast.StateList(p[10]))
     p[0] = ast
-
-
-def p_macros_list_opt(p):
-    '''
-    macros_list_opt : LBRACKET id_list RBRACKET
-                | empty
-    '''
-    macros = p[2] if p[1] else []
-    p[0] = sync_ast.Macros(macros)
 
 
 def p_id_list(p):

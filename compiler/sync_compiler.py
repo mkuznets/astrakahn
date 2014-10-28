@@ -7,7 +7,25 @@ import sync_parser as parse
 import sync_ir
 
 
-def build(src_file, args=[]):
+class MacroLexer:
+
+    def __init__(self, lexer, macros={}):
+        self.lexer = lexer
+        self.macros = macros
+
+    def token(self):
+        t = self.lexer.token()
+        if t is not None \
+                and self.macros \
+                and t.type == 'ID' and t.value in self.macros:
+            t.value = self.macros[t.value]
+        return t
+
+    def input(self, code):
+        self.lexer.input(code)
+
+
+def build(src_file, macros={}):
 
     if not (os.path.isfile(src_file) and os.access(src_file, os.R_OK)):
         raise ValueError('File either does not exist or cannot be read.')
@@ -15,58 +33,10 @@ def build(src_file, args=[]):
     sync_file = open(src_file, 'r')
     sync_code = sync_file.read()
 
-    # Parse source code.
-    lexer = lex.build()
+    lexer = MacroLexer(lex.build(), macros)
 
-
-    ####################### Code preprocessing ################################
-
-    lexer.input(sync_code)
-    sync_code_processed = ''
-
-    stack = ['LBRACKET', 'ID', 'SYNCH']
-    macros_done = False
-    macro_names = []
-    macro_subst = {}
-
-    while True:
-        tok = lexer.token()
-        if not tok:
-            break
-
-        if stack and stack[-1] == tok.type:
-            stack.pop()
-
-        if not macros_done and not stack and args:
-            if tok.type == 'LPAREN' or tok.type == 'RBRACKET':
-                macros_done = True
-
-                if len(args) != len(macro_names):
-                    print('Number of arguments does not correspond to the '
-                          'number of macros.')
-                    quit()
-
-                macro_subst = {n: str(args[i])
-                               for i, n in enumerate(macro_names)}
-
-            elif tok.type == 'COMMA':
-                pass
-
-            elif tok.type == 'ID':
-                macro_names.append(tok.value)
-
-        if macro_subst and tok.type == 'ID' and tok.value in macro_subst:
-            token = macro_subst[tok.value]
-        else:
-            token = str(tok.value)
-
-        sync_code_processed += token + ' '
-
-    ###########################################################################
-
-    lexer = lex.build()
     parser = parse.build('sync')
-    ast = parser.parse(sync_code_processed, lexer=lexer)
+    ast = parser.parse(sync_code, lexer=lexer)
 
     return ast
 

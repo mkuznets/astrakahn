@@ -125,9 +125,8 @@ class NodeVisitor(object):
 
 
 class Sync(Node):
-    def __init__(self, name, macros, inputs, outputs, decls, states, coord=None):
+    def __init__(self, name, inputs, outputs, decls, states, coord=None):
         self.name = name
-        self.macros = macros
         self.inputs = inputs
         self.outputs = outputs
         self.decls = decls
@@ -136,7 +135,6 @@ class Sync(Node):
 
     def children(self):
         nodelist = []
-        if self.macros is not None: nodelist.append(("macros", self.macros))
         if self.inputs is not None: nodelist.append(("inputs", self.inputs))
         if self.outputs is not None: nodelist.append(("outputs", self.outputs))
         if self.decls is not None: nodelist.append(("decls", self.decls))
@@ -144,19 +142,6 @@ class Sync(Node):
         return tuple(nodelist)
 
     attr_names = ('name',)
-
-class Macros(Node):
-    def __init__(self, macros, coord=None):
-        self.macros = macros
-        self.coord = coord
-
-    def children(self):
-        nodelist = []
-        for i, child in enumerate(self.macros or []):
-            nodelist.append(("macros[%d]" % i, child))
-        return tuple(nodelist)
-
-    attr_names = ()
 
 class PortList(Node):
     def __init__(self, ports, coord=None):
@@ -172,14 +157,14 @@ class PortList(Node):
     attr_names = ()
 
 class Port(Node):
-    def __init__(self, name, depth, coord=None):
+    def __init__(self, name, depth_exp, coord=None):
         self.name = name
-        self.depth = depth
+        self.depth_exp = depth_exp
         self.coord = coord
 
     def children(self):
         nodelist = []
-        if self.depth is not None: nodelist.append(("depth", self.depth))
+        if self.depth_exp is not None: nodelist.append(("depth_exp", self.depth_exp))
         return tuple(nodelist)
 
     attr_names = ('name',)
