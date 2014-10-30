@@ -2,7 +2,7 @@ synch zip2 (a:0, b:0 | c:0)
 {
   store ma, mb;
 
-  start:
+  start {
     on:
       a {
         set ma = this;
@@ -12,19 +12,22 @@ synch zip2 (a:0, b:0 | c:0)
       b {
         set mb = this;
         goto s2;
-      };
+      }
+  }
 
-  s1:
+  s1 {
     on:
       b {
         send ma || this => c;
         goto start;
-      };
+      }
+  }
 
-  s2:
+  s2 {
     on:
       a {
         send mb || this => c;
         goto start;
-      };
+      }
+  }
 }

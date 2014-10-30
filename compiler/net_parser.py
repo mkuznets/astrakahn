@@ -15,7 +15,7 @@ Net = collections.namedtuple('Net', 'type name config_params inputs outputs '
 
 Morphism = collections.namedtuple('Morphism', 'name size body override')
 
-Synchroniser = collections.namedtuple('Synchroniser', 'name confs obj')
+Synchroniser = collections.namedtuple('Synchroniser', 'name macros obj')
 
 Override = collections.namedtuple('Override', 'join split synch')
 

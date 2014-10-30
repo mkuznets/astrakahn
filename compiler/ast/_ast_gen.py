@@ -117,8 +117,7 @@ class NodeCfg(object):
 
             for seq_child in self.seq_child:
                 src += (
-                    '        for i, child in enumerate(self.%(child)s or []):\n'
-                    '            nodelist.append(("%(child)s[%%d]" %% i, child))\n') % (
+                    '        nodelist.append(("%(child)s", list(self.%(child)s) or []))\n') % (
                         dict(child=seq_child))
 
             src += '        return tuple(nodelist)\n'
@@ -214,51 +213,28 @@ class Node(object):
 
 
 class NodeVisitor(object):
-    """ A base NodeVisitor class for visiting c_ast nodes.
-        Subclass it and define your own visit_XXX methods, where
-        XXX is the class name you want to visit with these
-        methods.
-
-        For example:
-
-        class ConstantVisitor(NodeVisitor):
-            def __init__(self):
-                self.values = []
-
-            def visit_Constant(self, node):
-                self.values.append(node.value)
-
-        Creates a list of values of all the constant nodes
-        encountered below the given node. To use it:
-
-        cv = ConstantVisitor()
-        cv.visit(node)
-
-        Notes:
-
-        *   generic_visit() will be called for AST nodes for which
-            no visit_XXX method was defined.
-        *   The children of nodes for which a visit_XXX was
-            defined will not be visited - if you need this, call
-            generic_visit() on the node.
-            You can use:
-                NodeVisitor.generic_visit(self, node)
-        *   Modeled after Python's own AST visiting facilities
-            (the ast module of Python 3.0)
-    """
-    def visit(self, node):
-        """ Visit a node.
-        """
-        method = 'visit_' + node.__class__.__name__
-        visitor = getattr(self, method, self.generic_visit)
-        return visitor(node)
 
     def generic_visit(self, node):
+        raise NotImplementedError('generic_visit is not implemented')
+
+    def traverse(self, node):
         """ Called if no explicit visitor function exists for a
             node. Implements preorder visiting of the node.
         """
+
+        children = {}
+
         for c_name, c in node.children():
-            self.visit(c)
+            if type(c) == list:
+                outcome = [self.traverse(i) for i in c]
+            else:
+                outcome = self.traverse(c)
+
+            children[c_name] = outcome
+
+        method = 'visit_' + node.__class__.__name__
+        visitor = getattr(self, method, self.generic_visit)
+        return visitor(node, children) if visitor else None
 
 
 '''

@@ -77,51 +77,28 @@ class Node(object):
 
 
 class NodeVisitor(object):
-    """ A base NodeVisitor class for visiting c_ast nodes.
-        Subclass it and define your own visit_XXX methods, where
-        XXX is the class name you want to visit with these
-        methods.
-
-        For example:
-
-        class ConstantVisitor(NodeVisitor):
-            def __init__(self):
-                self.values = []
-
-            def visit_Constant(self, node):
-                self.values.append(node.value)
-
-        Creates a list of values of all the constant nodes
-        encountered below the given node. To use it:
-
-        cv = ConstantVisitor()
-        cv.visit(node)
-
-        Notes:
-
-        *   generic_visit() will be called for AST nodes for which
-            no visit_XXX method was defined.
-        *   The children of nodes for which a visit_XXX was
-            defined will not be visited - if you need this, call
-            generic_visit() on the node.
-            You can use:
-                NodeVisitor.generic_visit(self, node)
-        *   Modeled after Python's own AST visiting facilities
-            (the ast module of Python 3.0)
-    """
-    def visit(self, node):
-        """ Visit a node.
-        """
-        method = 'visit_' + node.__class__.__name__
-        visitor = getattr(self, method, self.generic_visit)
-        return visitor(node)
 
     def generic_visit(self, node):
+        raise NotImplementedError('generic_visit is not implemented')
+
+    def traverse(self, node):
         """ Called if no explicit visitor function exists for a
             node. Implements preorder visiting of the node.
         """
+
+        children = {}
+
         for c_name, c in node.children():
-            self.visit(c)
+            if type(c) == list:
+                outcome = [self.traverse(i) for i in c]
+            else:
+                outcome = self.traverse(c)
+
+            children[c_name] = outcome
+
+        method = 'visit_' + node.__class__.__name__
+        visitor = getattr(self, method, self.generic_visit)
+        return visitor(node, children) if visitor else None
 
 
 class Sync(Node):
@@ -150,8 +127,7 @@ class PortList(Node):
 
     def children(self):
         nodelist = []
-        for i, child in enumerate(self.ports or []):
-            nodelist.append(("ports[%d]" % i, child))
+        nodelist.append(("ports", list(self.ports) or []))
         return tuple(nodelist)
 
     attr_names = ()
@@ -197,8 +173,7 @@ class DeclList(Node):
 
     def children(self):
         nodelist = []
-        for i, child in enumerate(self.decls or []):
-            nodelist.append(("decls[%d]" % i, child))
+        nodelist.append(("decls", list(self.decls) or []))
         return tuple(nodelist)
 
     attr_names = ()
@@ -245,8 +220,7 @@ class EnumType(Node):
 
     def children(self):
         nodelist = []
-        for i, child in enumerate(self.labels or []):
-            nodelist.append(("labels[%d]" % i, child))
+        nodelist.append(("labels", list(self.labels) or []))
         return tuple(nodelist)
 
     attr_names = ()
@@ -258,8 +232,7 @@ class StateList(Node):
 
     def children(self):
         nodelist = []
-        for i, child in enumerate(self.states or []):
-            nodelist.append(("states[%d]" % i, child))
+        nodelist.append(("states", list(self.states) or []))
         return tuple(nodelist)
 
     attr_names = ()
@@ -272,8 +245,7 @@ class State(Node):
 
     def children(self):
         nodelist = []
-        for i, child in enumerate(self.trans_scopes or []):
-            nodelist.append(("trans_scopes[%d]" % i, child))
+        nodelist.append(("trans_scopes", list(self.trans_scopes) or []))
         return tuple(nodelist)
 
     attr_names = ('name',)
@@ -285,8 +257,7 @@ class TransScope(Node):
 
     def children(self):
         nodelist = []
-        for i, child in enumerate(self.trans_stmt or []):
-            nodelist.append(("trans_stmt[%d]" % i, child))
+        nodelist.append(("trans_stmt", list(self.trans_stmt) or []))
         return tuple(nodelist)
 
     attr_names = ()
@@ -303,8 +274,7 @@ class Trans(Node):
         nodelist = []
         if self.condition is not None: nodelist.append(("condition", self.condition))
         if self.guard is not None: nodelist.append(("guard", self.guard))
-        for i, child in enumerate(self.actions or []):
-            nodelist.append(("actions[%d]" % i, child))
+        nodelist.append(("actions", list(self.actions) or []))
         return tuple(nodelist)
 
     attr_names = ('port',)
@@ -329,8 +299,7 @@ class CondDataMsg(Node):
 
     def children(self):
         nodelist = []
-        for i, child in enumerate(self.labels or []):
-            nodelist.append(("labels[%d]" % i, child))
+        nodelist.append(("labels", list(self.labels) or []))
         return tuple(nodelist)
 
     attr_names = ('choice','tail',)
@@ -384,8 +353,7 @@ class DataExp(Node):
 
     def children(self):
         nodelist = []
-        for i, child in enumerate(self.items or []):
-            nodelist.append(("items[%d]" % i, child))
+        nodelist.append(("items", list(self.items) or []))
         return tuple(nodelist)
 
     attr_names = ()
@@ -488,8 +456,7 @@ class Goto(Node):
 
     def children(self):
         nodelist = []
-        for i, child in enumerate(self.states or []):
-            nodelist.append(("states[%d]" % i, child))
+        nodelist.append(("states", list(self.states) or []))
         return tuple(nodelist)
 
     attr_names = ()

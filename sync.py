@@ -8,13 +8,15 @@ import collections
 
 class Sync(components.Vertex):
 
-    def __init__(self, decls, states):
+    def __init__(self, name, inputs, outputs, decls, states):
 
-        # Mapping from channel names to port ids.
+        super(Sync, self).__init__(name, inputs, outputs)
+
+        # Mapping from port names to port ids.
         self.input_index = {p['name']: i for i, p in enumerate(self.inputs)}
         self.output_index = {p['name']: i for i, p in enumerate(self.outputs)}
 
-        self.this = {'channel': None, 'msg': None}
+        self.this = {'port': None, 'msg': None}
         self.variables = {}
         self.aliases = {}
 
@@ -32,14 +34,14 @@ class Sync(components.Vertex):
 
         # Initiate transition with variables.
         for name, state in self.states.items():
-            for channel, handler in state.handlers.items():
+            for port, handler in state.handlers.items():
                 for trans in handler.transitions:
                     trans.init_data(self.this, self.variables, self.variables)
 
     @property
-    def channel_handler(self):
-        if self.this['channel'] in self.state:
-            return self.state[self.this['channel']]
+    def port_handler(self):
+        if self.this['port'] in self.state:
+            return self.state[self.this['port']]
         else:
             return None
 
@@ -73,17 +75,17 @@ class Sync(components.Vertex):
             return (False, False)
 
         # Inputs that cause transitions either with `send's to available
-        # channels or without `send's at all.
+        # ports or without `send's at all.
         inputs_ready = set()
 
-        for channel in inputs_feasible:
+        for port in inputs_feasible:
 
             # Outputs to which messages can be sent providing fetching
-            # a message from `channel'.
-            outputs_impacted = self.state[channel].impact()
+            # a message from `port'.
+            outputs_impacted = self.state[port].impact()
 
             if not outputs_impacted & self.outputs_blocked:
-                inputs_ready.add(channel)
+                inputs_ready.add(port)
 
         if len(inputs_ready) == 0:
             # No transitions that can be taken immediately.
@@ -97,19 +99,19 @@ class Sync(components.Vertex):
         # Mapping from inputs to number of accepted messages.
         stats = {c: self.state[c].counter for c in self.inputs_ready}
 
-        # Choose least frequently taken channel.
-        channel = min(stats, key=stats.get)
+        # Choose least frequently taken port.
+        port = min(stats, key=stats.get)
 
-        # Get a message from selected channel.
-        self.this['msg'] = channel.get()
-        self.this['channel'] = channel
+        # Get a message from selected port.
+        self.this['msg'] = port.get()
+        self.this['port'] = port
 
         # Increment usage counter on the chosen handler.
-        self.channel_handler.mark_use()
+        self.port_handler.mark_use()
 
     def run(self):
 
-        transition = self.channel_handler.choose_transition()
+        transition = self.port_handler.choose_transition()
         transition.mark_use()
 
         # 1. Assign
@@ -154,23 +156,13 @@ class Sync(components.Vertex):
 
         return state_name
 
-    #------ Construction methods --------------
 
-    def add_state(self):
-        pass
+class State:
 
-    def add_transition(self):
-        pass
+    def __init__(self, name, handlers):
 
-    #-------------------------------------------
-
-
-class SyncState:
-
-    def __init__(self, handlers):
-
-        self.name = ''
-        self.handlers = {h.channel_name: h for h in handlers}
+        self.name = name
+        self.handlers = {h.port_name: h for h in handlers}
 
     def inputs(self):
         return self.handlers.keys()
@@ -178,23 +170,23 @@ class SyncState:
     def impact(self):
         outputs_impacted = set()
 
-        for channel, handler in self.handlers.items():
+        for port, handler in self.handlers.items():
             outputs_impacted |= handler.impact()
 
         return outputs_impacted
 
-    def __getitem__(self, channel):
-        return self.handlers[channel]
+    def __getitem__(self, port):
+        return self.handlers[port]
 
-    def __contains__(self, channel):
-        return channel in self.handlers
+    def __contains__(self, port):
+        return port in self.handlers
 
 
-class SyncChannelHandler:
+class PortHandler:
 
-    def __init__(self, transitions):
+    def __init__(self, port, transitions):
 
-        self.channel_name = None
+        self.port_name = port
         self.counter = 0
 
         self.transitions = transitions
@@ -262,15 +254,14 @@ class SyncChannelHandler:
         return None
 
 
-class SyncTransition:
+class Transition:
 
-    def __init__(self):
+    def __init__(self, port, condition, guard, actions):
 
-        self.channel = None
-        self.scope = None
-
-        self.condition = None  # <simple stmt>
-        self.guard = None  # <simple stmt>
+        self.port = port
+        self.condition = condition
+        self.guard = guard
+        self.actions = actions
 
         self.assign = []
         self.send = []
@@ -281,13 +272,16 @@ class SyncTransition:
         self.variables = None
         self.aliases = None
 
+        # Scope is set externally.
+        self.scope = -1
+
         # Aliases from the condition test. If the transition is taken, they
         # will be copied to state.
         self.aliases_local = {}
 
         self.counter = 0
 
-    def init_data(this, variables, aliases):
+    def init_data(self, this, variables, aliases):
         self.this = this
         self.variables = variables
         self.aliases = aliases
@@ -425,18 +419,45 @@ class StateInt(Variable):
         else:
             raise RuntimeError('Value is out of range.')
 
+    def __int__(self):
+        return self.value
+
     def __repr__(self):
         return 'StateInt({})'.format(self.width)
 
 
+class StateEnum(Variable):
+
+    def __init__(self, name, labels):
+        super(StateInt, self).__init__(name)
+        self.labels = tuple(labels)
+        self.label_map = {n: i for i, n in enumerate(labels)}
+        self.value = 0
+
+    def set(self, label):
+        if label in self.label_map:
+            self.value = self.label_map[label]
+        else:
+            raise ValueError('Label {} is not defined '
+                             'for the enum'.format(label))
+
+    def get(self, label):
+        return self.labels[self.value]
+
+    def __int__(self):
+        return self.value
+
+    def __repr__(self):
+        return 'StateInt({}, {})'.format(self.name, self.width)
+
+
 class StoreVar(Variable):
 
-    def __init__(self, name, channel):
+    def __init__(self, name):
         super(StoreVar, self).__init__(name)
-        self.channel = channel
 
     def set(self, value):
         self.value = value
 
     def __repr__(self):
-        return 'StoreVar({})'.format(self.channel)
+        return 'StoreVar({})'.format(self.name)

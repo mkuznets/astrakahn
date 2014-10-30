@@ -117,8 +117,6 @@ class Vertex(Node):
     def __init__(self, name, inputs, outputs):
         super(Vertex, self).__init__(name, inputs, outputs)
 
-        self.state = 0
-
         # Initialize input queues.
         for p in self.inputs:
             p['queue'] = comm.Channel()

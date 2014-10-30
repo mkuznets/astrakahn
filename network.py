@@ -209,14 +209,7 @@ class Network:
             pass
 
         elif node_type == 'Synchroniser':
-
-            inputs = [c[0] for c in node.obj[3]['in']]
-            outputs = [c[0] for c in node.obj[3]['out']]
-
-            sync = components.Syncroniser(node.name, inputs, outputs,
-                                          *node.obj[:3])
-            vertex_id = self.add_vertex(sync)
-
+            vertex_id = self.add_vertex(node.obj)
             return [vertex_id]
 
     def build_net(self, node, cores, scope):
@@ -257,7 +250,7 @@ class Network:
 
                 elif name in scope:  # Net, synchroniser or morphism
                     vertex_id = scope[name]
-                    vertex_id = self.copy_subnet(vertex_id)
+                    #vertex_id = self.copy_subnet(vertex_id)
 
                     obj = self.node(vertex_id, True)
 
