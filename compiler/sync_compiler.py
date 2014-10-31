@@ -33,7 +33,10 @@ class MacroLexer:
 class SyncBuilder(sync_ast.NodeVisitor):
 
     def __init__(self):
-        self.scope_cnt = 0
+
+        # Mapping from port names to port ids.
+        self.input_index = None
+        self.output_index = None
 
     def visit_Sync(self, node, children):
         return sync_runtime.Sync(name=node.name, **children)
@@ -41,6 +44,14 @@ class SyncBuilder(sync_ast.NodeVisitor):
     #--------------------------------------------------
 
     def visit_PortList(self, node, children):
+
+        index = {n: i for i, n in enumerate(children['ports'])}
+
+        if self.input_index is None:
+            self.input_index = index
+        else:
+            self.output_index = index
+
         return children['ports']
 
     def visit_Port(self, node, children):
@@ -71,7 +82,7 @@ class SyncBuilder(sync_ast.NodeVisitor):
             return sync_runtime.StateEnum(node.name, arg)
 
     def visit_IntType(self, node, _):
-        return ('int', size)
+        return ('int', node.size)
 
     def visit_EnumType(self, node, children):
         return ('enum', children['labels'])
@@ -84,20 +95,22 @@ class SyncBuilder(sync_ast.NodeVisitor):
     def visit_State(self, node, children):
         byport = {}
 
-        for i, scope in enumerate(children['trans_scopes']):
-            for trans in scope:
-                trans.scope = i
+        for i, order in enumerate(children['trans_orders']):
+            for trans in order:
+                trans.order = i
                 byport[trans.port] = byport.get(trans.port, []) + [trans]
 
         handlers = [sync_runtime.PortHandler(p, t) for p, t in byport.items()]
 
         return sync_runtime.State(node.name, handlers)
 
-    def visit_TransScope(self, node, children):
+    def visit_TransOrder(self, node, children):
         return children['trans_stmt']
 
     def visit_Trans(self, node, children):
-        return sync_runtime.Transition(node.port, children['condition'],
+        pid = self.input_index[node.port]
+
+        return sync_runtime.Transition(pid, children['condition'],
                                        children['guard'], children['actions'])
 
     #--------------------------------------------------
@@ -120,7 +133,8 @@ class SyncBuilder(sync_ast.NodeVisitor):
         return ('Assign', node.lhs, children['rhs'])
 
     def visit_Send(self, node, children):
-        return ('Send', children['msg'], node.port)
+        pid = self.output_index[node.port]
+        return ('Send', children['msg'], pid)
 
     def visit_Goto(self, node, children):
         return ('Goto', children['states'])
@@ -128,7 +142,7 @@ class SyncBuilder(sync_ast.NodeVisitor):
     #--------------------------------------------------
 
     def visit_DataExp(self, node, children):
-        return children['items']
+        return ('DataExp', children['items'])
 
     def visit_ItemThis(self, node, _):
         return ('ItemThis', )
@@ -145,18 +159,24 @@ class SyncBuilder(sync_ast.NodeVisitor):
     #--------------------------------------------------
 
     def visit_MsgSegmark(self, node, children):
-        return  ('MsgSegmark', children['depth'])
+
+        if type(children['depth']) == 'str':
+            depth = ('DepthVar', children['depth'])
+        else:
+            depth = children['depth']
+
+        return ('MsgSegmark', depth)
 
     def visit_MsgData(self, node, children):
-        return  ('MsgData', node.choice, children['data_exp'])
+        return ('MsgData', node.choice, children['data_exp'])
 
     def visit_MsgNil(self, node, _):
-        return  ('MsgNil', )
+        return ('MsgNil', )
 
     #--------------------------------------------------
 
     def visit_IntExp(self, node, _):
-        return node.exp
+        return ('IntExp', node.exp)
 
     def visit_ID(self, node, _):
         return node.name

@@ -120,6 +120,18 @@ class SegmentationMark(Message):
         return self.__repr__()
 
 
+class NilMessage(Message):
+
+    def __init__(self):
+        self.content = None
+
+    def __repr__(self):
+        return 'nil()'
+
+    def __str__(self):
+        return self.__repr__()
+
+
 class DataMessage(Message):
     """
     Regular data messages
@@ -127,12 +139,14 @@ class DataMessage(Message):
 
     def __init__(self, content):
         self.content = content
+        self.alt = ''
 
     def __repr__(self):
         return "msg(" + str(self.content) + ")"
 
     def __str__(self):
         return self.__repr__()
+
 
 class Record(DataMessage):
 
@@ -143,6 +157,23 @@ class Record(DataMessage):
 
     def union(self, msg):
         self.content.update(msg.content)
+
+    def extract(self, pattern, tail):
+
+        aliases = {}
+
+        if pattern:
+            aliases.update({l: self.content[l] for l in self.pattern})
+
+        if tail:
+            label_diff = self.content.keys() - set(pattern)
+            tail_content = {l: self.content[l] for l in label_diff}
+            aliases.update({'tail': Record(tail_content)})
+
+        return aliases
+
+    def __contains__(self, pattern):
+        return True if set(pattern) <= self.content.keys() else False
 
 class Empty(Exception):
     def __init__(self, value):

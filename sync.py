@@ -3,8 +3,6 @@
 import communication as comm
 import components
 
-import collections
-
 
 class Sync(components.Vertex):
 
@@ -12,14 +10,9 @@ class Sync(components.Vertex):
 
         super(Sync, self).__init__(name, inputs, outputs)
 
-        # Mapping from port names to port ids.
-        self.input_index = {p['name']: i for i, p in enumerate(self.inputs)}
-        self.output_index = {p['name']: i for i, p in enumerate(self.outputs)}
-
         self.this = {'port': None, 'msg': None}
-        self.variables = {}
-        self.aliases = {}
 
+        self.decls = {v.name: v for v in decls}
         self.states = {s.name: s for s in states}
 
         # Initial state
@@ -36,7 +29,9 @@ class Sync(components.Vertex):
         for name, state in self.states.items():
             for port, handler in state.handlers.items():
                 for trans in handler.transitions:
-                    trans.init_data(self.this, self.variables, self.variables)
+                    trans.init_data(self.this, self.decls)
+
+    #---------------------------------------------------
 
     @property
     def port_handler(self):
@@ -49,18 +44,28 @@ class Sync(components.Vertex):
     def state(self):
         return self.states[self.state_name]
 
-    @property
+    #---------------------------------------------------
+
+    def inputs_available(self):
+        port_list = []
+
+        for i, p in enumerate(self.inputs):
+            if not p['queue'].is_empty():
+                port_list.append(i)
+
+        return port_list
+
     def outputs_blocked(self):
 
-        blocked = []
+        blocked = set()
 
-        for i, port in enumerate(self.n_outputs):
+        for i, port in enumerate(self.outputs):
             if port['to'] is None or not port['to'].is_space_for(1):
-                blocked.append(i)
+                blocked.add(i)
 
         return blocked
 
-    #################################
+    #---------------------------------------------------
 
     def is_ready(self):
 
@@ -70,7 +75,7 @@ class Sync(components.Vertex):
         # Inputs that can cause transitions from the current state
         inputs_feasible = set(inputs_available) & set(self.state.inputs())
 
-        if len(inputs_feasible) == 0:
+        if not inputs_feasible:
             # No transitions for available messages
             return (False, False)
 
@@ -84,7 +89,7 @@ class Sync(components.Vertex):
             # a message from `port'.
             outputs_impacted = self.state[port].impact()
 
-            if not outputs_impacted & self.outputs_blocked:
+            if not outputs_impacted & self.outputs_blocked():
                 inputs_ready.add(port)
 
         if len(inputs_ready) == 0:
@@ -97,29 +102,31 @@ class Sync(components.Vertex):
     def fetch(self):
 
         # Mapping from inputs to number of accepted messages.
-        stats = {c: self.state[c].counter for c in self.inputs_ready}
+        stats = {c: self.state[c].hits for c in self.inputs_ready}
 
         # Choose least frequently taken port.
         port = min(stats, key=stats.get)
 
         # Get a message from selected port.
-        self.this['msg'] = port.get()
+        self.this['msg'] = self.get(port)
         self.this['port'] = port
 
         # Increment usage counter on the chosen handler.
-        self.port_handler.mark_use()
+        self.port_handler.hit()
+
+        self.run()
 
     def run(self):
 
         transition = self.port_handler.choose_transition()
-        transition.mark_use()
+        transition.hit()
 
         # 1. Assign
         transition.assign()
 
         # 2. Send
-        output = transition.send()
-        self.send_out(output, wrap=True)
+        dispatch = transition.send()
+        self.send_out(dispatch)
 
         # 3. Goto
         goto_states = transition.goto()
@@ -141,6 +148,7 @@ class Sync(components.Vertex):
             return states[0]
 
         else:
+            # TODO: not tested
             for state_name in states:
                 state = self.states[state_name]
 
@@ -150,7 +158,7 @@ class Sync(components.Vertex):
 
         # Choose less frequently taken state from either immediately available
         # or the whole set of states.
-        stats = {s: self.states[s].counter
+        stats = {s: self.states[s].hits
                  for s in (immediate if immediate else states)}
         state_name = min(stats, key=stats.get)
 
@@ -159,13 +167,12 @@ class Sync(components.Vertex):
 
 class State:
 
-    def __init__(self, name, handlers):
-
+    def __init__(self, name, handler_list):
         self.name = name
-        self.handlers = {h.port_name: h for h in handlers}
+        self.handlers = {h.port: h for h in handler_list}
 
     def inputs(self):
-        return self.handlers.keys()
+        return set(self.handlers.keys())
 
     def impact(self):
         outputs_impacted = set()
@@ -185,11 +192,10 @@ class State:
 class PortHandler:
 
     def __init__(self, port, transitions):
-
-        self.port_name = port
-        self.counter = 0
-
+        self.port = port
         self.transitions = transitions
+
+        self.hits = 0
 
     def impact(self):
         '''
@@ -203,54 +209,55 @@ class PortHandler:
 
         return outputs_impacted
 
-    def mark_use(self):
-        self.counter += 1
+    def hit(self):
+        self.hits += 1
 
     def choose_transition(self):
         '''
         Choose transitions that satisfy conditions and select the least
         frequently taken one.
         '''
+        orders = {}
 
-        scopes = {}
-
-        # Group transition by scopes.
         for trans in self.transitions:
-            scopes[trans.scope] = scopes.get(trans.scope, []) + [trans]
+            orders[trans.order] = orders.get(trans.order, []) + [trans]
 
-        for i in sorted(scopes.keys()):
-            scope = scopes[i]
+        for i in sorted(orders.keys()):
+            order = orders[i]
 
             # Collect valid transitions.
             #
-            for trans in scope:
+            for trans in order:
                 valid_trans = []
-                fallback = None
+                else_trans = None
 
-                if trans.is_fallback() and trans.test():
+                if trans.is_else() and trans.test():
                     # .else condition.
-                    fallback = trans
+                    else_trans = trans
                     continue
+
                 elif trans.test():
                     # test condition.
                     valid_trans.append(trans)
 
             # Select transition from the list of valid ones.
             #
-            if not (valid_trans or fallback):
-                # No transition available, go to next scope.
+            if not (valid_trans or else_trans):
+                # No transition available, go to next order.
                 continue
 
-            elif not valid_trans and fallback:
+            elif not valid_trans and else_trans:
                 # Pick .else transition if nothing else available.
-                return fallback
+                return else_trans
 
             elif valid_trans:
-                stats = {t.counter: t for t in valid_trans}
-                trans = min(stats, stats.get)
+                # One or more transitions are valie: choose the least
+                # frequently taken one.
+                stats = {t: t.hits for t in valid_trans}
+                trans = min(stats, key=stats.get)
                 return trans
 
-        # No available transitions: do nothing (go to the same state).
+        # No transitions available.
         return None
 
 
@@ -258,136 +265,216 @@ class Transition:
 
     def __init__(self, port, condition, guard, actions):
 
+        assert(condition and guard)
+
         self.port = port
         self.condition = condition
         self.guard = guard
         self.actions = actions
 
-        self.assign = []
-        self.send = []
-        self.goto = []
+        self.aliases = {}
 
         # References to the sync's data structures
         self.this = None
-        self.variables = None
-        self.aliases = None
+        self.decls = None
 
         # Scope is set externally.
-        self.scope = -1
+        self.order = -1
+        self.hits = 0
 
-        # Aliases from the condition test. If the transition is taken, they
-        # will be copied to state.
-        self.aliases_local = {}
-
-        self.counter = 0
-
-    def init_data(self, this, variables, aliases):
+    def init_data(self, this, decls):
         self.this = this
-        self.variables = variables
-        self.aliases = aliases
+        self.decls = decls
 
-    def test(self):
-        self.aliases_local.clear()
-
-        if self.test_condition() and self.test_guard():
-            return True
-        else:
-            self.aliases_local.clear()
-            return False
-
-    def test_condition(self):
-        msg = self.this['msg']
-
-        if self.condition is None:
-            return True
-
-        cond_type = self.condition[0]
-
-        # on C.@depth
-        if cond_type == 'segmark':
-            name = self.condition[1]
-
-            if isinstance(msg, comm.SegmentationMark):
-                self.aliases_local[name] = msg.n
-                return True
-            else:
-                return False
-
-        # on C.?variant
-        elif cond_type == 'choice':
-            variant = self.condition[1]
-            if isinstance(msg, comm.DataMessage) and msg.variant == variant:
-                return True
-            else:
-                return False
-
-        # on C.(id, id || id_tail)
-        elif cond_type == 'pattern':
-            pattern, tail = self.condition[1]
-
-            if isinstance(msg, comm.Record) and pattern in msg:
-                self.aliases_local.update(msg.extract(pattern, tail))
-                return True
-            else:
-                return False
-
-        # on C.?variant(id, id || id_tail)
-        elif cond_type == 'choice_pattern':
-            variant = self.condition[1]
-            pattern, tail = self.condition[2]
-
-            if isinstance(msg, comm.Record) and msg.variant == variant and pattern in msg:
-                self.aliases_local.update(msg.extract(pattern, tail))
-                return True
-            else:
-                return False
-
-    def test_guard(self):
-
-        if self.guard is None:
-            return True
-
-        # Guard must be a lambda expression.
-        assert(callable(self.guard))
-
-        scope = self.state_vars.copy()
-        scope.update(self.aliases_local)
-
-        # Collect argument values from the scope.
-        args = (scope[n] for n in self.guard.__code__.co_varnames)
-
-        # Execute guard expression.
-        return True if bool(self.guard(*args)) else False
-
-    def assign(self):
-
-        for stmt in self.assign:
-            lhs, exp = stmt
-
-            if callable(exp):
-                pass
-                # State variable
-            else:
-                pass
-                # Store variable
-
-    def send(self):
-        pass
-
-    def goto(self):
-        return self.goto
+    def is_else(self):
+        return self.condition[0] == 'CondElse'
 
     def impact(self):
         '''
         Get outputs to which messages can be sent while performing
         the transition.
         '''
-        return set(stmt[0] for stmt in self.send)
+        return set(act[2] for act in self.actions if act[0] == 'Send')
 
-    def mark_use(self):
-        # Move local aliases to the transition scope.
-        self.aliases.update(self.aliases_local)
-        self.counter += 1
+    def hit(self):
+        self.hits += 1
+
+    def var_scope(self):
+        scope = self.decls.copy()
+        scope.update(self.aliases)
+        return scope
+
+    def test(self):
+        self.aliases.clear()
+
+        if self.test_condition() and self.test_guard():
+            return True
+        else:
+            self.aliases.clear()
+            return False
+
+    def test_condition(self):
+        msg = self.this['msg']
+
+        ctype = self.condition[0]
+
+        # on C
+        if ctype == 'CondElse' or ctype == 'CondEmpty':
+            return True
+
+        # on C.@depth
+        elif ctype == 'CondSegmark':
+
+            if not isinstance(msg, comm.SegmentationMark):
+                return False
+
+            depth = self.condition[1]
+            self.aliases[depth] = msg.n
+
+            return True
+
+        # on C.?variant
+        elif ctype == 'CondDataMsg':
+
+            if not isinstance(msg, comm.DataMessage):
+                return False
+
+            alt, pattern, tail = self.condition[1:]
+
+            if alt and msg.alt != alt:
+                return False
+
+            if pattern or tail:
+                if not isinstance(msg, comm.Record) or (pattern not in msg):
+                    return False
+                self.aliases.update(msg.extract(pattern, tail))
+
+            return True
+
+    def test_guard(self):
+
+        if not self.guard:
+            return True
+
+        assert(self.guard[0] == 'IntExp')
+
+        exp = self.guard[1]
+        result = self._compute_intexp(exp)
+
+        return bool(result)
+
+    def assign(self):
+        assign_acts = (act for act in self.actions if act[0] == 'Assign')
+
+        for act in assign_acts:
+            lhs, rhs = act[1:]
+            type, content = rhs
+
+            if type == 'DataExp':
+                result = self._compute_dataexp(content)
+
+            elif type == 'IntExp':
+                result = self._compute_intexp(content)
+
+            else:
+                raise AssertionError('Unsupported type of expression')
+                return
+
+            if lhs in self.decls:
+                self.decls[lhs] = result
+            else:
+                self.aliases[lhs] = result
+
+    def send(self):
+
+        dispatch = {}
+        send_acts = (act for act in self.actions if act[0] == 'Send')
+
+        for act in send_acts:
+            msg, port = act[1:]
+            type = msg[0]
+
+            if type == 'MsgSegmark':
+                dtype, depth = msg[1]
+
+                if dtype == 'DepthVar':
+                    scope = self.var_scope()
+                    assert(depth in scope and type(scope[depth]) == int)
+                    outcome = comm.SegmentationMark(scope[depth])
+
+                elif dtype == 'IntExp':
+                    result = self._compute_intexp(depth)
+                    outcome = comm.SegmentationMark(result)
+
+                else:
+                    raise AssertionError('Unsupported type of segmark depth.')
+                    return
+
+            elif type == 'MsgData':
+                alt, dataexp = msg[1:]
+
+                outcome = self._compute_dataexp(dataexp[1])
+
+                if alt:
+                    outcome.alt = alt
+
+            elif type == 'MsgNil':
+                outcome = comm.NilMessage()
+
+            dispatch.update({port: outcome})
+
+        return dispatch
+
+    def goto(self):
+        goto_acts = [act for act in self.actions if act[0] == 'Goto']
+
+        if not goto_acts:
+            return None
+
+        act = goto_acts[0]
+        return act[1]
+
+
+    def _compute_intexp(self, exp):
+
+        assert(callable(exp))
+
+        scope = self.var_scope()
+        # Collect argument values from the scope.
+        args = (scope[n] for n in exp.__code__.co_varnames)
+
+        # Evaluate expression.
+        return int(exp(*args))
+
+    def _compute_dataexp(self, items):
+
+        content = {}
+
+        scope = self.var_scope()
+
+        for item in items:
+
+            if item[0] == 'ItemThis':
+                assert(isinstance(self.this['msg'], comm.Record))
+                new_item = self.this['msg'].content
+
+            elif item[0] == 'ItemVar':
+                var = item[1]
+                assert(var in scope and isinstance(scope[var], comm.Record))
+                new_item = scope[var].content
+
+            elif item[0] == 'ItemPair':
+                label, var = item[1:]
+                assert(var in scope)
+                new_item = {label: scope[var].content}
+
+            else:
+                raise AssertionError('Unsupported type of expression')
+                return
+
+            content.update(new_item)
+
+        return comm.Record(content)
 
 
 #------------------------------------------------------------------------------

@@ -29,7 +29,7 @@ def n_enqueued(nodes):
 
 
 def printer(d):
-    print(d)
+    print('Result:', d)
     return ('send', {}, None)
 
 
@@ -48,15 +48,13 @@ if __name__ == '__main__':
 
     root.outputs[0]['node_id'] = pr_id
     pr.inputs[0]['node_id'] = n.root - 1
-
     root.outputs[0] = pr.outputs[0]
     ########################################
 
-    root.put(0, 3)
-    root.put(0, comm.SegmentationMark(1), wrap=False)
-    root.put(0, 10)
-    root.put(0, comm.SegmentationMark(3), wrap=False)
-
+    root.put(0, comm.Record({'a': 1, 'b': 3}))
+    root.put(0, comm.Record({'a': 100, 'b': 101}))
+    root.put(1, comm.Record({'c': 5, 'd': 8}))
+    root.put(1, comm.Record({'c': 102, 'd': 103}))
 
     # Processing pool
     pm = pool.PoolManager(2)

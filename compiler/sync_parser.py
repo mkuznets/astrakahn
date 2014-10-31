@@ -144,7 +144,7 @@ def p_on_scope(p):
     '''
     on_scope : ON COLON trans_list
     '''
-    p[0] = sync_ast.TransScope(p[3])
+    p[0] = sync_ast.TransOrder(p[3])
 
 
 def p_elseon_scope_list_opt(p):
@@ -167,7 +167,7 @@ def p_elseon_scope(p):
     '''
     elseon_scope : ELSEON COLON trans_list
     '''
-    p[0] = sync_ast.TransScope(p[3])
+    p[0] = sync_ast.TransOrder(p[3])
 
 
 def p_trans_list(p):

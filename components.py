@@ -25,24 +25,23 @@ class Node:
     def n_outputs(self):
         return len(self.outputs)
 
-    def send_out(self, mapping, wrap=True):
+    def send_out(self, mapping):
 
-        for port_id, content in mapping.items():
-            out_msg = comm.DataMessage(content) if wrap else content
+        for port_id, msg in mapping.items():
             port = self.outputs[port_id]
 
-            port['to'].put(out_msg)
+            port['to'].put(msg)
             self.departures.append(port['dst'])
 
-    def send_to_range(self, msg, rng, wrap=True):
+    def send_to_range(self, msg, rng):
         mapping = {i: msg for i in rng}
-        self.send_out(mapping, wrap)
+        self.send_out(mapping)
 
-    def send_to_all(self, msg, wrap=False):
+    def send_to_all(self, msg):
         rng = range(self.n_outputs)
-        self.send_to_range(msg, rng, wrap)
+        self.send_to_range(msg, rng)
 
-    def input_available(self, rng=None, any_channel=True):
+    def input_ready(self, rng=None, any_channel=True):
         '''
         Returns True if there's a msg in at least one channel from the range.
         '''
@@ -63,7 +62,7 @@ class Node:
 
         return input_ready
 
-    def output_available(self, rng=None, space_needed=1):
+    def output_ready(self, rng=None, space_needed=1):
         if rng is None:
             rng = range(self.n_outputs)
 
@@ -76,7 +75,6 @@ class Node:
         return True
 
     def get(self, port_id):
-
         if port_id < 0 or port_id >= self.n_inputs:
             raise IndexError('Wrong number of input port.')
 
@@ -87,12 +85,10 @@ class Node:
 
         return m
 
-    def put(self, port_id, data, wrap=True):
-        msg = comm.DataMessage(data) if wrap else data
+    def put(self, port_id, msg):
         self.inputs[port_id]['queue'].put(msg)
 
-    def put_back(self, port_id, data, wrap=True):
-        msg = comm.DataMessage(data) if wrap else data
+    def put_back(self, port_id, msg):
         self.inputs[port_id]['queue'].put_back(msg)
 
     def collect_impact(self):
@@ -155,10 +151,10 @@ class Vertex(Node):
         be available.
         '''
         # Test if there's an input message.
-        input_ready = self.input_available()
+        input_ready = self.input_ready()
 
         # Test availability of outputs.
-        output_ready = self.output_available()
+        output_ready = self.output_ready()
 
         return (input_ready, output_ready)
 
@@ -209,7 +205,7 @@ class Printer(Transductor):
     def is_ready(self):
 
         # Check if there's an input message.
-        input_ready = self.input_available()
+        input_ready = self.input_ready()
         return (input_ready, True)
 
 
@@ -261,15 +257,15 @@ class DyadicReductor(Box):
         #
 
         # Reduction start: 2 messages from both channel are needed.
-        input_ready = self.input_available(any_channel=False)
+        input_ready = self.input_ready(any_channel=False)
 
         ## Test output availability.
         #
 
-        output_ready = self.output_available(range(1, self.n_outputs))
+        output_ready = self.output_ready(range(1, self.n_outputs))
         # Test the 1st output separately since it must have enough space
         # for segmentation mark.
-        output_ready &= self.output_available((0,), space_needed=2)
+        output_ready &= self.output_ready((0,), space_needed=2)
 
         return (input_ready, output_ready)
 
@@ -281,7 +277,7 @@ class DyadicReductor(Box):
         if term_a.is_segmark():
             # Special behaviour for segmentation marks.
             term_a.plus()
-            self.send_to_range(term_a, range(1, self.n_outputs), wrap=False)
+            self.send_to_range(term_a, range(1, self.n_outputs))
             return None
 
         # Second reduction operand
@@ -289,12 +285,12 @@ class DyadicReductor(Box):
 
         if term_b.is_segmark():
             # Special behaviour for segmentation marks.
-            self.send_out({0: term_a}, wrap=False)
+            self.send_out({0: term_a})
 
             if term_b.n != 1:
                 if term_b.n > 1:
                     term_b.minus()
-                self.send_out({0: term_b}, wrap=False)
+                self.send_out({0: term_b})
 
             return None
 

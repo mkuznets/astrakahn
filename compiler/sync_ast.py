@@ -238,19 +238,19 @@ class StateList(Node):
     attr_names = ()
 
 class State(Node):
-    def __init__(self, name, trans_scopes, coord=None):
+    def __init__(self, name, trans_orders, coord=None):
         self.name = name
-        self.trans_scopes = trans_scopes
+        self.trans_orders = trans_orders
         self.coord = coord
 
     def children(self):
         nodelist = []
-        nodelist.append(("trans_scopes", list(self.trans_scopes) or []))
+        nodelist.append(("trans_orders", list(self.trans_orders) or []))
         return tuple(nodelist)
 
     attr_names = ('name',)
 
-class TransScope(Node):
+class TransOrder(Node):
     def __init__(self, trans_stmt, coord=None):
         self.trans_stmt = trans_stmt
         self.coord = coord
@@ -334,17 +334,6 @@ class Assign(Node):
         return tuple(nodelist)
 
     attr_names = ('lhs',)
-
-class IntExp(Node):
-    def __init__(self, exp, coord=None):
-        self.exp = exp
-        self.coord = coord
-
-    def children(self):
-        nodelist = []
-        return tuple(nodelist)
-
-    attr_names = ('exp',)
 
 class DataExp(Node):
     def __init__(self, items, coord=None):
@@ -482,4 +471,15 @@ class NUMBER(Node):
         return tuple(nodelist)
 
     attr_names = ('value',)
+
+class IntExp(Node):
+    def __init__(self, exp, coord=None):
+        self.exp = exp
+        self.coord = coord
+
+    def children(self):
+        nodelist = []
+        return tuple(nodelist)
+
+    attr_names = ('exp',)
 
