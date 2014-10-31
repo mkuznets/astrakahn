@@ -270,7 +270,11 @@ class Transition:
         self.port = port
         self.condition = condition
         self.guard = guard
-        self.actions = actions
+
+        self.actions = {'Goto': [], 'Assign': [], 'Send': []}
+        # Group actions by type.
+        for act in actions:
+            self.actions[act[0]].append(act)
 
         self.aliases = {}
 
@@ -278,13 +282,17 @@ class Transition:
         self.this = None
         self.decls = None
 
-        # Scope is set externally.
+        # Order is set externally.
         self.order = -1
         self.hits = 0
+
+    #---------------------------------------------------
 
     def init_data(self, this, decls):
         self.this = this
         self.decls = decls
+
+    #---------------------------------------------------
 
     def is_else(self):
         return self.condition[0] == 'CondElse'
@@ -299,10 +307,7 @@ class Transition:
     def hit(self):
         self.hits += 1
 
-    def var_scope(self):
-        scope = self.decls.copy()
-        scope.update(self.aliases)
-        return scope
+    #---------------------------------------------------
 
     def test(self):
         self.aliases.clear()
@@ -319,6 +324,7 @@ class Transition:
         ctype = self.condition[0]
 
         # on C
+        # on C.else
         if ctype == 'CondElse' or ctype == 'CondEmpty':
             return True
 
@@ -363,10 +369,11 @@ class Transition:
 
         return bool(result)
 
-    def assign(self):
-        assign_acts = (act for act in self.actions if act[0] == 'Assign')
+    #---------------------------------------------------
 
-        for act in assign_acts:
+    def assign(self):
+
+        for act in self.actions['Assign']:
             lhs, rhs = act[1:]
             type, content = rhs
 
@@ -388,9 +395,8 @@ class Transition:
     def send(self):
 
         dispatch = {}
-        send_acts = (act for act in self.actions if act[0] == 'Send')
 
-        for act in send_acts:
+        for act in self.actions['Send']:
             msg, port = act[1:]
             type = msg[0]
 
@@ -398,7 +404,7 @@ class Transition:
                 dtype, depth = msg[1]
 
                 if dtype == 'DepthVar':
-                    scope = self.var_scope()
+                    scope = self._var_scope()
                     assert(depth in scope and type(scope[depth]) == int)
                     outcome = comm.SegmentationMark(scope[depth])
 
@@ -426,7 +432,7 @@ class Transition:
         return dispatch
 
     def goto(self):
-        goto_acts = [act for act in self.actions if act[0] == 'Goto']
+        goto_acts = self.actions['Goto']
 
         if not goto_acts:
             return None
@@ -434,12 +440,18 @@ class Transition:
         act = goto_acts[0]
         return act[1]
 
+    #---------------------------------------------------
+
+    def _var_scope(self):
+        scope = self.decls.copy()
+        scope.update(self.aliases)
+        return scope
 
     def _compute_intexp(self, exp):
 
         assert(callable(exp))
 
-        scope = self.var_scope()
+        scope = self._var_scope()
         # Collect argument values from the scope.
         args = (scope[n] for n in exp.__code__.co_varnames)
 
@@ -450,7 +462,7 @@ class Transition:
 
         content = {}
 
-        scope = self.var_scope()
+        scope = self._var_scope()
 
         for item in items:
 
@@ -475,7 +487,6 @@ class Transition:
             content.update(new_item)
 
         return comm.Record(content)
-
 
 #------------------------------------------------------------------------------
 
