@@ -44,17 +44,22 @@ if __name__ == '__main__':
     root = n.node(n.root)['obj']
 
     n.network.add_edge(n.root, pr_id)
-    root.outputs[0]['to'] = pr.inputs[0]['queue']
 
+    root.outputs[0]['to'] = pr.inputs[0]['queue']
     root.outputs[0]['node_id'] = pr_id
     pr.inputs[0]['node_id'] = n.root - 1
+
+    root.outputs[1]['to'] = root.inputs[1]['queue']
+    root.outputs[1]['node_id'] = 0
+    root.outputs[2]['to'] = root.inputs[2]['queue']
+    root.outputs[2]['node_id'] = 0
+    root.outputs[3]['to'] = root.inputs[3]['queue']
+    root.outputs[3]['node_id'] = 0
+
     root.outputs[0] = pr.outputs[0]
     ########################################
 
-    root.put(0, comm.Record({'a': 1, 'b': 3}))
-    root.put(0, comm.Record({'a': 100, 'b': 101}))
-    root.put(1, comm.Record({'c': 5, 'd': 8}))
-    root.put(1, comm.Record({'c': 102, 'd': 103}))
+    root.put(0, comm.Record({'opc': 5, 'operand': 0}))
 
     # Processing pool
     pm = pool.PoolManager(2)
