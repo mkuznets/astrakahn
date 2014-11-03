@@ -43,7 +43,7 @@ if __name__ == '__main__':
     # Look for declared synchronisers and compile them.
     for name, decl in ast.decls.items():
         if type(decl).__name__ == 'Synchroniser':
-            sync_obj = sync_compiler.build(src_dir + '/' + decl.name + '.sync')
+            sync_obj = sync_compiler.build(src_dir + '/' + decl.name + '.sync', decl.macros)
             ast.decls[name] = parse.Synchroniser(decl[0], decl[1], sync_obj)
 
     # Network construction.

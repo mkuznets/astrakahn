@@ -14,17 +14,24 @@ import sync as sync_runtime
 
 class MacroLexer:
 
-    def __init__(self, lexer, macros={}):
+    def __init__(self, lexer, macros={}, ws=True):
         self.lexer = lexer
         self.macros = macros
+        self.ws = ws
 
     def token(self):
+        return self.lexer.token()
+
+    def mtoken(self):
+        v = ''
         t = self.lexer.token()
-        if t is not None \
-                and self.macros \
-                and t.type == 'ID' and t.value in self.macros:
-            t.value = self.macros[t.value]
-        return t
+        if t is None:
+            return None
+
+        if self.macros and t.type == 'ID' and t.value in self.macros:
+            return str(self.macros[t.value])
+
+        return str(t.value)
 
     def input(self, code):
         self.lexer.input(code)
@@ -150,7 +157,7 @@ class SyncBuilder(sync_ast.NodeVisitor):
     def visit_ItemVar(self, node, _):
         return ('ItemVar', node.name)
 
-    def visit_ItemExpand(self, node, ):
+    def visit_ItemExpand(self, node, _):
         return ('ItemPair', node.name, node.name)
 
     def visit_ItemPair(self, node, children):
@@ -198,10 +205,40 @@ def build(src_file, macros={}):
     sync_file = open(src_file, 'r')
     sync_code = sync_file.read()
 
-    lexer = MacroLexer(lex.build(), macros)
+    #------ Preprocess synchroniser code -------
 
+    sync_code_final = ''
+
+    lexer = MacroLexer(lex.build(), macros)
+    lexer.input(sync_code)
+
+    while True:
+        t = lexer.mtoken()
+        if not t: break
+        sync_code_final += t
+
+    #-------------------------------------------
+
+
+    #----- Make lexer ingore whitespaces -------
+
+    del lex.t_SPACES
+    del lex.t_NEWLINE
+    lex.tokens.remove('SPACES')
+    lex.tokens.remove('NEWLINE')
+    lex.t_ignore = " \t"
+
+    def t_NEWLINE(t):
+        r'\n'
+        t.lexer.lineno += t.value.count("\n")
+
+    lex.t_NEWLINE = t_NEWLINE
+
+    #-------------------------------------------
+
+    lexer = MacroLexer(lex.build(), ws=False)
     parser = parse.build('sync')
-    ast = parser.parse(sync_code, lexer=lexer)
+    ast = parser.parse(sync_code_final, lexer=lexer)
 
     visitor = SyncBuilder()
     sync_obj = visitor.traverse(ast)
@@ -213,5 +250,5 @@ if __name__ == '__main__':
         print('Provide source file!')
         quit()
 
-    ast = build(sys.argv[1])
-    ast.show(attrnames=True, nodenames=True)
+    obj = build(sys.argv[1])
+    print(obj)

@@ -104,7 +104,7 @@ class NodeCfg(object):
         return src
 
     def _gen_children(self):
-        src = '    def children(self):\n'
+        src = '    def children(self, expand=False):\n'
 
         if self.all_entries:
             src += '        nodelist = []\n'
@@ -117,7 +117,11 @@ class NodeCfg(object):
 
             for seq_child in self.seq_child:
                 src += (
-                    '        nodelist.append(("%(child)s", list(self.%(child)s) or []))\n') % (
+                    '        if expand:\n'
+                    '            for i, child in enumerate(self.%(child)s or []):\n'
+                    '                nodelist.append(("%(child)s[%%d]" %% i, child))\n'
+                    '        else:\n'
+                    '            nodelist.append(("%(child)s", list(self.%(child)s) or []))\n') % (
                         dict(child=seq_child))
 
             src += '        return tuple(nodelist)\n'
@@ -202,7 +206,7 @@ class Node(object):
             buf.write(' (at %s)' % self.coord)
         buf.write('\n')
 
-        for (child_name, child) in self.children():
+        for (child_name, child) in self.children(expand=True):
             child.show(
                 buf,
                 offset=offset + 2,

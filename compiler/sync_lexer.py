@@ -4,7 +4,7 @@ keywords = ['SYNCH', 'STORE', 'STATE', 'INT', 'ENUM', 'ON', 'ELSEON', 'ELSE',
             'SET', 'SEND', 'GOTO', 'THIS', 'NIL']
 
 tokens = keywords + [
-    'ID', 'NUMBER', 'LBRACE', 'RBRACE', 'LPAREN', 'RPAREN', 'LBRACKET',
+    'ID', 'NUMBER', 'SPACES', 'NEWLINE', 'LBRACE', 'RBRACE', 'LPAREN', 'RPAREN', 'LBRACKET',
     'RBRACKET', 'COLON', 'PLUS', 'MINUS', 'MULT', 'DIVIDE', 'MOD', 'SHL',
     'SHR', 'LE', 'GE', 'GEQ', 'LEQ', 'EQ', 'NEQ', 'NOT', 'BAND', 'BOR', 'BXOR',
     'LAND', 'LOR', 'COMMA', 'DOT', 'AT', 'QM', 'TO', 'ASSIGN', 'SCOLON',
@@ -61,17 +61,20 @@ def t_NUMBER(t):
     t.value = int(t.value)
     return t
 
-t_ignore = " \t"
-
 # Comment (C-Style)
 def t_cppcomment(t):
     r'/\*(.|\n)*?\*/'
     t.lexer.lineno += t.value.count('\n')
     #t.lexer.skip(1)
 
-def t_newline(t):
-    r'\n+'
+def t_NEWLINE(t):
+    r'\n'
     t.lexer.lineno += t.value.count("\n")
+    return t
+
+def t_SPACES(t):
+    r'[ \t\v\f]+'
+    return t
 
 def t_error(t):
     print("Illegal character '%s'" % t.value[0])

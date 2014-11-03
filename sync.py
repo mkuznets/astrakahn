@@ -527,7 +527,7 @@ class StateInt(Variable):
 class StateEnum(Variable):
 
     def __init__(self, name, labels):
-        super(StateInt, self).__init__(name)
+        super(StateEnum, self).__init__(name)
         self.labels = tuple(labels)
         self.label_map = {n: i for i, n in enumerate(labels)}
         self.value = 0
