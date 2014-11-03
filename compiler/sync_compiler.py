@@ -45,8 +45,14 @@ class SyncBuilder(sync_ast.NodeVisitor):
         self.input_index = None
         self.output_index = None
 
+        self.consts = []
+
     def visit_Sync(self, node, children):
-        return sync_runtime.Sync(name=node.name, **children)
+
+        scope = sync_runtime.Scope(children['decls'] + self.consts)
+
+        del children['decls']
+        return sync_runtime.Sync(name=node.name, scope=scope, **children)
 
     #--------------------------------------------------
 
@@ -92,6 +98,12 @@ class SyncBuilder(sync_ast.NodeVisitor):
         return ('int', node.size)
 
     def visit_EnumType(self, node, children):
+
+        # Named constants from enum type.
+        for i, label in enumerate(children['labels']):
+            c = sync_runtime.Const(label, i)
+            self.consts.append(c)
+
         return ('enum', children['labels'])
 
     #--------------------------------------------------
@@ -158,16 +170,21 @@ class SyncBuilder(sync_ast.NodeVisitor):
         return ('ItemVar', node.name)
 
     def visit_ItemExpand(self, node, _):
-        return ('ItemPair', node.name, node.name)
+        return ('ItemPair', node.name, ('ID', node.name))
 
     def visit_ItemPair(self, node, children):
-        return ('ItemPair', node.label, children['value'])
+        if type(children['value']) == str:
+            rhs = ('ID', children['value'])
+        else:
+            rhs = children['value']
+
+        return ('ItemPair', node.label, rhs)
 
     #--------------------------------------------------
 
     def visit_MsgSegmark(self, node, children):
 
-        if type(children['depth']) == 'str':
+        if type(children['depth']) == str:
             depth = ('DepthVar', children['depth'])
         else:
             depth = children['depth']

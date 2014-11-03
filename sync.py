@@ -6,14 +6,13 @@ import components
 
 class Sync(components.Vertex):
 
-    def __init__(self, name, inputs, outputs, decls, states):
+    def __init__(self, name, inputs, outputs, scope, states):
 
         super(Sync, self).__init__(name, inputs, outputs)
 
         self.this = {'port': None, 'msg': None}
-
-        self.decls = {v.name: v for v in decls}
         self.states = {s.name: s for s in states}
+        self.scope = scope
 
         # Initial state
         self.state_name = 'start'
@@ -29,7 +28,7 @@ class Sync(components.Vertex):
         for name, state in self.states.items():
             for port, handler in state.handlers.items():
                 for trans in handler.transitions:
-                    trans.init_data(self.this, self.decls)
+                    trans.init_data(self.this, self.scope)
 
     #---------------------------------------------------
 
@@ -119,6 +118,10 @@ class Sync(components.Vertex):
     def run(self):
 
         transition = self.port_handler.choose_transition()
+
+        if transition is None:
+            return
+
         transition.hit()
 
         # 1. Assign
@@ -136,6 +139,9 @@ class Sync(components.Vertex):
         else:
             # Do nothing if `goto' statement is not specified.
             pass
+
+        # Clean up
+        self.scope.clear_tmp()
 
     def choose_state(self, states):
         '''
@@ -225,11 +231,12 @@ class PortHandler:
         for i in sorted(orders.keys()):
             order = orders[i]
 
+            valid_trans = []
+            else_trans = None
+
             # Collect valid transitions.
             #
             for trans in order:
-                valid_trans = []
-                else_trans = None
 
                 if trans.is_else() and trans.test():
                     # .else condition.
@@ -276,11 +283,10 @@ class Transition:
         for act in actions:
             self.actions[act[0]].append(act)
 
-        self.aliases = {}
-
         # References to the sync's data structures
         self.this = None
-        self.decls = None
+
+        self.local_aliases = {}
 
         # Order is set externally.
         self.order = -1
@@ -288,9 +294,9 @@ class Transition:
 
     #---------------------------------------------------
 
-    def init_data(self, this, decls):
+    def init_data(self, this, scope):
         self.this = this
-        self.decls = decls
+        self.scope = scope
 
     #---------------------------------------------------
 
@@ -306,17 +312,14 @@ class Transition:
 
     def hit(self):
         self.hits += 1
+        self.scope.add_from(self.local_aliases)
 
     #---------------------------------------------------
 
     def test(self):
-        self.aliases.clear()
-
-        if self.test_condition() and self.test_guard():
-            return True
-        else:
-            self.aliases.clear()
-            return False
+        result = self.test_condition() and self.test_guard()
+        self.scope.clear_tmp()
+        return result
 
     def test_condition(self):
         msg = self.this['msg']
@@ -335,14 +338,14 @@ class Transition:
                 return False
 
             depth = self.condition[1]
-            self.aliases[depth] = msg.n
+            self.scope[depth] = msg.n
 
             return True
 
         # on C.?variant
         elif ctype == 'CondDataMsg':
 
-            if not isinstance(msg, comm.DataMessage):
+            if not isinstance(msg, comm.Record):
                 return False
 
             alt, pattern, tail = self.condition[1:]
@@ -353,7 +356,8 @@ class Transition:
             if pattern or tail:
                 if not isinstance(msg, comm.Record) or (pattern not in msg):
                     return False
-                self.aliases.update(msg.extract(pattern, tail))
+                self.local_aliases = msg.extract(pattern, tail)
+                self.scope.add_from(self.local_aliases)
 
             return True
 
@@ -387,10 +391,7 @@ class Transition:
                 raise AssertionError('Unsupported type of expression')
                 return
 
-            if lhs in self.decls:
-                self.decls[lhs] = result
-            else:
-                self.aliases[lhs] = result
+            self.scope[lhs] = result
 
     def send(self):
 
@@ -398,15 +399,16 @@ class Transition:
 
         for act in self.actions['Send']:
             msg, port = act[1:]
-            type = msg[0]
+            mtype = msg[0]
 
-            if type == 'MsgSegmark':
+            if mtype == 'MsgSegmark':
                 dtype, depth = msg[1]
 
                 if dtype == 'DepthVar':
-                    scope = self._var_scope()
-                    assert(depth in scope and type(scope[depth]) == int)
-                    outcome = comm.SegmentationMark(scope[depth])
+                    assert(depth in self.scope
+                           and type(self.scope[depth]) == int)
+
+                    outcome = comm.SegmentationMark(self.scope[depth])
 
                 elif dtype == 'IntExp':
                     result = self._compute_intexp(depth)
@@ -416,15 +418,16 @@ class Transition:
                     raise AssertionError('Unsupported type of segmark depth.')
                     return
 
-            elif type == 'MsgData':
+            elif mtype == 'MsgData':
                 alt, dataexp = msg[1:]
 
-                outcome = self._compute_dataexp(dataexp[1])
+                content = self._compute_dataexp(dataexp[1])
+                outcome = comm.Record(content)
 
                 if alt:
                     outcome.alt = alt
 
-            elif type == 'MsgNil':
+            elif mtype == 'MsgNil':
                 outcome = comm.NilMessage()
 
             dispatch.update({port: outcome})
@@ -442,18 +445,12 @@ class Transition:
 
     #---------------------------------------------------
 
-    def _var_scope(self):
-        scope = self.decls.copy()
-        scope.update(self.aliases)
-        return scope
-
     def _compute_intexp(self, exp):
 
         assert(callable(exp))
 
-        scope = self._var_scope()
         # Collect argument values from the scope.
-        args = (scope[n] for n in exp.__code__.co_varnames)
+        args = (self.scope[n] for n in exp.__code__.co_varnames)
 
         # Evaluate expression.
         return int(exp(*args))
@@ -461,8 +458,6 @@ class Transition:
     def _compute_dataexp(self, items):
 
         content = {}
-
-        scope = self._var_scope()
 
         for item in items:
 
@@ -472,24 +467,86 @@ class Transition:
 
             elif item[0] == 'ItemVar':
                 var = item[1]
-                assert(var in scope and isinstance(scope[var], comm.Record))
-                new_item = scope[var].content
+                assert(var in self.scope
+                       and type(self.scope[var]) == dict)
+                new_item = self.scope[var]
 
             elif item[0] == 'ItemPair':
-                label, var = item[1:]
-                assert(var in scope)
-                new_item = {label: scope[var].content}
+
+                label, rhs = item[1:]
+
+                if rhs[0] == 'ID':
+                    assert(rhs[1] in self.scope)
+                    new_item = {label: self.scope[rhs[1]]}
+
+                elif rhs[0] == 'IntExp':
+                    result = self._compute_intexp(rhs[1])
+                    new_item = {label: result}
+
+                else:
+                    raise AssertionError('Unsupported type of '
+                                         'rhs: {}'.format(rhs[0]))
+                    return
 
             else:
-                raise AssertionError('Unsupported type of expression')
+                raise AssertionError('Unsupported type of '
+                                     'expression: {}'.format(item[0]))
                 return
 
             content.update(new_item)
 
-        return comm.Record(content)
+        return content
 
 #------------------------------------------------------------------------------
 
+class Scope:
+
+    def __init__(self, items):
+        self.items = []
+        self.tmp_items = []
+
+        self.index = {}
+
+        for v in items:
+            if not isinstance(v, Variable):
+                raise ValueError('Item of a wrong type: {}'.format(type(v)))
+            else:
+                self.items.append(v)
+                self.index[v.name] = v
+
+    def clear_tmp(self):
+        for v in self.tmp_items:
+            del self.index[v.name]
+        del self.tmp_items[:]
+
+    def __getitem__(self, name):
+        if name in self.index:
+            return self.index[name].get()
+        else:
+            raise IndexError('Name `{}\' is not in the scope'.format(name))
+
+    def __setitem__(self, name, value):
+        if name in self.index:
+            # Set value to existing variable.
+            self.index[name].set(value)
+        else:
+            # Create new temporary variable.
+            obj = Alias(name)
+            obj.set(value)
+            self.tmp_items.append(obj)
+            self.index[name] = obj
+
+    def add_from(self, container):
+        if not isinstance(container, dict):
+            raise ValueError('add_from() supports only dict containers.')
+        else:
+            for n, v in container.items():
+                self.__setitem__(n, v)
+
+    def __contains__(self, name):
+        return name in self.index
+
+#------------------------------------------------------------------------------
 
 class Variable:
 
@@ -500,8 +557,40 @@ class Variable:
     def get(self):
         return self.value
 
-    def set(self):
+    def set(self, value):
         raise NotImplemented('Set method not implemented for abstract type.')
+
+
+class Alias(Variable):
+
+    def __init__(self, name):
+        super(Alias, self).__init__(name)
+        self.value = 0
+
+    def set(self, value):
+        self.value = value
+
+    def __int__(self):
+        return self.value
+
+    def __repr__(self):
+        return 'Alias({})'.format(self.name)
+
+
+class Const(Variable):
+
+    def __init__(self, name, value):
+        super(Const, self).__init__(name)
+        self.value = value
+
+    def set(self, value):
+        raise AssertionError('Constant cannot be changed.')
+
+    def __int__(self):
+        return self.value
+
+    def __repr__(self):
+        return 'Const({}={})'.format(self.name, self.value)
 
 
 class StateInt(Variable):
@@ -512,7 +601,7 @@ class StateInt(Variable):
         self.value = 0
 
     def set(self, value):
-        if value > 0 and value <= 2 ** self.width:
+        if value >= 0 and value <= 2 ** self.width:
             self.value = value
         else:
             raise RuntimeError('Value is out of range.')
@@ -532,27 +621,35 @@ class StateEnum(Variable):
         self.label_map = {n: i for i, n in enumerate(labels)}
         self.value = 0
 
-    def set(self, label):
-        if label in self.label_map:
-            self.value = self.label_map[label]
-        else:
-            raise ValueError('Label {} is not defined '
-                             'for the enum'.format(label))
+    def set(self, value):
 
-    def get(self, label):
-        return self.labels[self.value]
+        if type(value) == str:
+            # Set named constant.
+            if value in self.label_map:
+                self.value = self.label_map[value]
+            else:
+                raise IndexError('Label {} is not defined '
+                                 'for the enum'.format(value))
+
+        elif type(value) == int:
+            # Set integer value.
+            # NOTE: It is not checked that the given number is in the range of
+            # declared named constants. In this sence StateEnum is equivalent
+            # to StateInt.
+            self.value = value
 
     def __int__(self):
         return self.value
 
     def __repr__(self):
-        return 'StateInt({}, {})'.format(self.name, self.width)
+        return 'StateEnum({}, {})'.format(self.name, self.labels)
 
 
 class StoreVar(Variable):
 
     def __init__(self, name):
         super(StoreVar, self).__init__(name)
+        self.value = {}
 
     def set(self, value):
         self.value = value

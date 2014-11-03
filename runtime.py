@@ -59,7 +59,24 @@ if __name__ == '__main__':
     root.outputs[0] = pr.outputs[0]
     ########################################
 
-    root.put(0, comm.Record({'opc': 5, 'operand': 0}))
+    LD, ST, ADD, MUL, PRT = range(1, 6)
+
+    istream = [
+        (PRT, 0),
+        (ADD, 10),
+        (PRT, 0),
+        (MUL, 5),
+        (PRT, 0),
+        (ST, 1),
+        (ADD, 100),
+        (ST, 2),
+        (PRT, 0),
+        (LD, 1),
+        (PRT, 0),
+    ]
+
+    for opc, op in istream:
+        root.put(0, comm.Record({'opc': opc, 'op0': op}))
 
     # Processing pool
     pm = pool.PoolManager(2)

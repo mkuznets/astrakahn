@@ -458,7 +458,7 @@ def p_intexp_id(p):
     intexp_id : ID
     '''
     global intexp_args
-    intexp_args += p[1]
+    intexp_args.append(p[1])
     p[0] = p[1]
 
 ###############################
