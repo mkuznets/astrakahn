@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-import sync_ast
+import os
+from . import ast
 
 
 precedence = (
@@ -12,20 +13,16 @@ precedence = (
 )
 
 
-ast = {}
-
-
 def p_sync(p):
     '''
     sync : SYNCH ID LPAREN input_list BOR output_list RPAREN \
            LBRACE decl_list_opt state_list RBRACE
     '''
-    ast = sync_ast.Sync(p[2],
-                        sync_ast.PortList(p[4]),
-                        sync_ast.PortList(p[6]),
-                        p[9],
-                        sync_ast.StateList(p[10]))
-    p[0] = ast
+    p[0] = ast.Sync(p[2],
+                    ast.PortList(p[4]),
+                    ast.PortList(p[6]),
+                    p[9],
+                    ast.StateList(p[10]))
 
 
 def p_id_list(p):
@@ -33,7 +30,7 @@ def p_id_list(p):
     id_list : ID
             | id_list COMMA ID
     '''
-    p[0] = [sync_ast.ID(p[1])] if len(p) == 2 else p[1] + [sync_ast.ID(p[3])]
+    p[0] = [ast.ID(p[1])] if len(p) == 2 else p[1] + [ast.ID(p[3])]
 
 
 def p_input_list(p):
@@ -51,11 +48,11 @@ def p_input(p):
           | ID COLON NUMBER
     '''
     if len(p) == 4:
-        depth = sync_ast.ID(p[3]) if type(p[3]) == 'str' else sync_ast.NUMBER(p[3])
+        depth = ast.ID(p[3]) if type(p[3]) == 'str' else ast.NUMBER(p[3])
     else:
-        depth = sync_ast.DepthNone()
+        depth = ast.DepthNone()
 
-    p[0] = sync_ast.Port(p[1], depth)
+    p[0] = ast.Port(p[1], depth)
 
 
 def p_output_list(p):
@@ -71,7 +68,7 @@ def p_output(p):
     output : ID
            | ID COLON depth_exp
     '''
-    p[0] = sync_ast.Port(p[1], (sync_ast.DepthNone() if len(p) == 2 else p[3]))
+    p[0] = ast.Port(p[1], (ast.DepthNone() if len(p) == 2 else p[3]))
 
 
 def p_depth_exp(p):
@@ -82,17 +79,19 @@ def p_depth_exp(p):
               | ID MINUS NUMBER
     '''
     if len(p) == 2:
-        p[0] = sync_ast.ID(p[1]) if type(p[1]) == 'str' else sync_ast.NUMBER(p[1])
+        p[0] = ast.ID(p[1]) if type(p[1]) == 'str' else ast.NUMBER(p[1])
 
     else:
-        p[0] = sync_ast.DepthExp(p[1], p[3] if p[2] == '+' else -p[3])
+        p[0] = ast.DepthExp(p[1], p[3] if p[2] == '+' else -p[3])
+
 
 def p_decl_list_opt(p):
     '''
     decl_list_opt : decl_list
                   | empty
     '''
-    p[0] = sync_ast.DeclList(p[1]) if p[1] != '' else sync_ast.DeclList([])
+    p[0] = ast.DeclList(p[1]) if p[1] != '' else ast.DeclList([])
+
 
 def p_decl_list(p):
     '''
@@ -109,9 +108,9 @@ def p_decl(p):
          | STATE type id_list SCOLON
     '''
     if len(p) == 4:
-        p[0] = [sync_ast.StoreVar(n.name) for n in p[2]]
+        p[0] = [ast.StoreVar(n.name) for n in p[2]]
     else:
-        p[0] = [sync_ast.StateVar(n.name, p[2]) for n in p[3]]
+        p[0] = [ast.StateVar(n.name, p[2]) for n in p[3]]
 
 
 def p_type(p):
@@ -120,9 +119,9 @@ def p_type(p):
          | ENUM LPAREN id_list RPAREN
     '''
     if p[1] == 'int':
-        p[0] = sync_ast.IntType(p[3])
+        p[0] = ast.IntType(p[3])
     else:
-        p[0] = sync_ast.EnumType(p[3])
+        p[0] = ast.EnumType(p[3])
 
 
 def p_state_list(p):
@@ -137,14 +136,14 @@ def p_state(p):
     '''
     state : ID LBRACE on_scope elseon_scope_list_opt RBRACE
     '''
-    p[0] = sync_ast.State(p[1], [p[3]] + p[4])
+    p[0] = ast.State(p[1], [p[3]] + p[4])
 
 
 def p_on_scope(p):
     '''
     on_scope : ON COLON trans_list
     '''
-    p[0] = sync_ast.TransOrder(p[3])
+    p[0] = ast.TransOrder(p[3])
 
 
 def p_elseon_scope_list_opt(p):
@@ -167,7 +166,7 @@ def p_elseon_scope(p):
     '''
     elseon_scope : ELSEON COLON trans_list
     '''
-    p[0] = sync_ast.TransOrder(p[3])
+    p[0] = ast.TransOrder(p[3])
 
 
 def p_trans_list(p):
@@ -182,7 +181,7 @@ def p_trans_stmt(p):
     '''
     trans_stmt : ID condition_opt guard_opt action_list
     '''
-    p[0] = sync_ast.Trans(p[1], p[2], p[3], p[4])
+    p[0] = ast.Trans(p[1], p[2], p[3], p[4])
 
 
 def p_condition_opt(p):
@@ -193,7 +192,7 @@ def p_condition_opt(p):
                   | empty
     '''
     if len(p) == 2:
-        p[0] = sync_ast.CondEmpty()
+        p[0] = ast.CondEmpty()
     else:
         p[0] = p[2]
 
@@ -202,7 +201,7 @@ def p_cond_segmark(p):
     '''
     cond_segmark : AT ID
     '''
-    p[0] = sync_ast.CondSegmark(p[2])
+    p[0] = ast.CondSegmark(p[2])
 
 
 def p_cond_datamsg(p):
@@ -212,13 +211,13 @@ def p_cond_datamsg(p):
                  | QM ID LPAREN id_list tail_opt RPAREN
     '''
     if len(p) == 3:
-        p[0] = sync_ast.CondDataMsg(p[2], [], None)
+        p[0] = ast.CondDataMsg(p[2], [], None)
 
     elif len(p) == 5:
-        p[0] = sync_ast.CondDataMsg(None, p[2], p[3])
+        p[0] = ast.CondDataMsg(None, p[2], p[3])
 
     elif len(p) == 7:
-        p[0] = sync_ast.CondDataMsg(p[2], p[4], p[5])
+        p[0] = ast.CondDataMsg(p[2], p[4], p[5])
 
 
 def p_tail_opt(p):
@@ -233,7 +232,8 @@ def p_cond_else(p):
     '''
     cond_else : ELSE
     '''
-    p[0] = sync_ast.CondElse()
+    p[0] = ast.CondElse()
+
 
 def p_guard_opt(p):
     '''
@@ -250,7 +250,7 @@ def p_guard_opt(p):
             quit()
 
         f.code = code
-        p[0] = sync_ast.IntExp(f)
+        p[0] = ast.IntExp(f)
     else:
         p[0] = p[2]
 
@@ -283,7 +283,7 @@ def p_assign(p):
     assign : ID ASSIGN int_exp
            | ID ASSIGN data_exp
     '''
-    p[0] = sync_ast.Assign(p[1], p[3])
+    p[0] = ast.Assign(p[1], p[3])
 
 
 def p_data_exp(p):
@@ -292,7 +292,7 @@ def p_data_exp(p):
              | LPAREN data RPAREN
     '''
     data = p[1] if len(p) == 2 else p[2]
-    p[0] = sync_ast.DataExp(data)
+    p[0] = ast.DataExp(data)
 
 
 def p_data(p):
@@ -312,15 +312,15 @@ def p_item(p):
     '''
     if len(p) == 2:
         if p[1] == 'this':
-            p[0] = sync_ast.ItemThis()
+            p[0] = ast.ItemThis()
         else:
-            p[0] = sync_ast.ItemVar(p[1])
+            p[0] = ast.ItemVar(p[1])
 
     elif len(p) == 3:
-        p[0] = sync_ast.ItemExpand(p[2])
+        p[0] = ast.ItemExpand(p[2])
 
     elif len(p) == 4:
-        p[0] = sync_ast.ItemPair(p[1], p[3])
+        p[0] = ast.ItemPair(p[1], p[3])
     else:
         raise ValueError("Something Wrong!")
 
@@ -330,7 +330,7 @@ def p_rhs(p):
     rhs : ID
         | int_exp
     '''
-    p[0] = sync_ast.ID(p[1]) if type(p[1]) == str else p[1]
+    p[0] = ast.ID(p[1]) if type(p[1]) == str else p[1]
 
 
 def p_send_stmt_opt(p):
@@ -353,7 +353,7 @@ def p_dispatch(p):
     '''
     dispatch : msg_exp TO ID
     '''
-    p[0] = sync_ast.Send(p[1], p[3])
+    p[0] = ast.Send(p[1], p[3])
 
 
 def p_msg_exp(p):
@@ -364,10 +364,11 @@ def p_msg_exp(p):
             | NIL
     '''
     if len(p) == 2:
-        p[0] = sync_ast.MsgNil() if p[1] == 'nil' else p[1]
+        p[0] = ast.MsgNil() if p[1] == 'nil' else p[1]
     else:
-        depth = sync_ast.ID(p[2]) if type(p[2]) == str else p[2]
-        p[0] = sync_ast.MsgSegmark(depth)
+        depth = ast.ID(p[2]) if type(p[2]) == str else p[2]
+        p[0] = ast.MsgSegmark(depth)
+
 
 def p_data_msg(p):
     '''
@@ -375,9 +376,9 @@ def p_data_msg(p):
              | QM ID data_exp
     '''
     if len(p) == 2:
-        p[0] = sync_ast.MsgData(None, p[1])
+        p[0] = ast.MsgData(None, p[1])
     else:
-        p[0] = sync_ast.MsgData(p[2], p[3])
+        p[0] = ast.MsgData(p[2], p[3])
 
 
 def p_goto_stmt_opt(p):
@@ -386,7 +387,7 @@ def p_goto_stmt_opt(p):
                   | empty
     '''
     states = [n for n in p[2]] if len(p) == 4 else []
-    p[0] = [sync_ast.Goto(states)]
+    p[0] = [ast.Goto(states)]
 
 
 def p_empty(p):
@@ -413,7 +414,7 @@ def p_int_exp(p):
         quit()
 
     f.code = code
-    p[0] = sync_ast.IntExp(f)
+    p[0] = ast.IntExp(f)
     intexp_args = []
 
 
@@ -473,16 +474,18 @@ def p_error(p):
 
 
 import ply.yacc as yacc
-import sync_lexer as lexer
+from . import lexer
 
 
-def build(start):
+def build():
     tokens = lexer.tokens
-    return yacc.yacc(start=start, debug=0, tabmodule='parsetab/sync')
+    tab_path = os.path.dirname(__file__) + '/parsetab/sync'
+    return yacc.yacc(start='sync', debug=0, tabmodule=tab_path)
 
 
 import inspect
 import sys
+
 
 def linenumber_of_member(m):
     try:
@@ -490,13 +493,12 @@ def linenumber_of_member(m):
     except AttributeError:
         return -1
 
+
 def print_grammar():
     rules = []
 
     members = inspect.getmembers(sys.modules[__name__])
     members = sorted(members, key=linenumber_of_member)
-    #print(members)
-    #return
 
     for name, obj in members:
         if inspect.isfunction(obj) and name[:2] == 'p_'\

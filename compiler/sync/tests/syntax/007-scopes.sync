@@ -1,0 +1,27 @@
+# Scope, transitions.
+
+synch scopes_trans (a, b, c | d)
+{
+  foo {
+    on:
+      a {}
+      b {}
+    elseon:
+      b {}
+    elseon:
+      c {}
+      b {}
+  }
+
+  bar {
+	on:
+      c {}
+	elseon:
+      b {}
+  }
+
+  baz {
+	on:
+	  c {}
+  }
+}

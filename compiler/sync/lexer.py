@@ -82,6 +82,25 @@ def t_error(t):
 
 ###############################################################################
 
+
+def disable_ws():
+    global tokens
+
+    if 't_SPACES' in globals():
+        del globals()['t_SPACES']
+        del globals()['t_NEWLINE']
+        tokens.remove('SPACES')
+        tokens.remove('NEWLINE')
+
+        globals()['t_ignore'] = " \t"
+
+        def nl(t):
+            r'\n'
+            t.lexer.lineno += t.value.count("\n")
+
+        globals()['t_NEWLINE'] = nl
+
+
 import ply.lex as lex
 
 

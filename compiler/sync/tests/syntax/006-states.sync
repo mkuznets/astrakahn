@@ -1,0 +1,8 @@
+# Multiple state syncroniser.
+
+synch states (a, b, c | d)
+{
+  foo { on: a {} }
+  bar { on: b {} }
+  baz { on: c {} }
+}

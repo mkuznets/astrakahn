@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 import communication as comm
-import components
+from . import abstract
 
 
-class Sync(components.Vertex):
+class Sync(abstract.Vertex):
 
     def __init__(self, name, inputs, outputs, scope, states):
 

@@ -1,0 +1,28 @@
+# Actions.
+
+synch actions (a | d)
+{
+  foo {
+    on:
+      a {
+        set aa = [5];
+        send bb => b;
+      }
+
+      b {
+        set aa = [6];
+        send bb => b;
+        goto a, b, c;
+      }
+
+      c {
+        set aa = [7];
+        goto a, b, c;
+      }
+
+      d {
+        send bb => b;
+        goto a, b, c;
+      }
+  }
+}

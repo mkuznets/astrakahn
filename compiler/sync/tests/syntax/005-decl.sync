@@ -1,0 +1,13 @@
+# Store and state variables
+
+synch vars (a | b)
+{
+  store foo, bar;
+  state int(32) i, j, k;
+  store s;
+  state enum(ONE, two, ThReE) status;
+  state int(1) counter;
+  state enum(no) alt;
+
+  bar { on: a {} }
+}

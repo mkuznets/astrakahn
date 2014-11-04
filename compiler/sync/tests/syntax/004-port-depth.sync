@@ -1,0 +1,6 @@
+# Optional port depth 
+
+synch port_depth (a:0, b:z, c, d:103 | e:z+10, f:z-100, g:10, h:z, i)
+{
+  bar { on: a {} }
+}

@@ -1,15 +1,15 @@
 #-----------------------------------------------------------------
 # ** ATTENTION **
 # This code was automatically generated from the file:
-# _sync_ast.cfg
+# ast/sync_ast.cfg
 #
 # Do not modify it directly. Modify the configuration file and
 # run the generator again.
 # ** ** *** ** **
 #
-# AST Node classes.
+# Node library for syncroniser AST.
 #
-# Copyright (C) 2008-2013, Eli Bendersky
+# Copyright (C) 2014, Max Kuznetsov
 # License: BSD
 #-----------------------------------------------------------------
 

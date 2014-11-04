@@ -145,9 +145,9 @@ r'''#-----------------------------------------------------------------
 # run the generator again.
 # ** ** *** ** **
 #
-# AST Node classes.
+# Node library for syncroniser AST.
 #
-# Copyright (C) 2008-2013, Eli Bendersky
+# Copyright (C) 2014, Max Kuznetsov
 # License: BSD
 #-----------------------------------------------------------------
 
@@ -246,6 +246,6 @@ class NodeVisitor(object):
 
 if __name__ == "__main__":
     import sys
-    ast_gen = ASTCodeGenerator('_sync_ast.cfg')
-    ast_gen.generate(open('../sync_ast.py', 'w'))
+    ast_gen = ASTCodeGenerator('ast/sync_ast.cfg')
+    ast_gen.generate(open('ast.py', 'w'))
 

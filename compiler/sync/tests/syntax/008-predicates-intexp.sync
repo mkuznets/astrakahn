@@ -1,0 +1,30 @@
+# Various types of predicates. Integer exressions.
+
+synch predicates (a | d)
+{
+  foo {
+    on:
+      a {}
+      b & [5 * A] {}
+      c.@d {}
+      d.@f & [- 3 + (A - B) * 4 / 2] {}
+      e.?d {}
+      f.?f & [((3 & A) << 3)] {}
+
+    elseon:
+      g.?d (z, y) {}
+      h.?d (z, y) & [B >> (3 | 2 ^ f)] {}
+      i.?d (z, y || t) {}
+      j.?d (z, y || t) & [(3 & A) < 3 && A > 3] {}
+
+    elseon:
+      k.(z, y) {}
+      l.(z, y) & [A >= 2] {}
+      m.(z, y || t) {}
+      n.(z, y || t) & [FOOO == 42 || NOOO != 0] {}
+
+    elseon:
+	  o.else {}
+	  p.else & [! (A || !B && B || !C)] {}
+  }
+}
