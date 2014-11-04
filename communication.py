@@ -168,7 +168,7 @@ class Record(DataMessage):
         if tail:
             label_diff = self.content.keys() - set(pattern)
             tail_content = {l: self.content[l] for l in label_diff}
-            aliases.update({'tail': tail_content})
+            aliases.update({tail: tail_content})
 
         return aliases
 
