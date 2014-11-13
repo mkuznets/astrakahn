@@ -1,64 +1,36 @@
 #!/usr/bin/env python3
 
-import imp
-import os
-import sys
-import inspect
-import net_lexer as lex
-import net_parser as parse
-import sync_compiler
-
-sys.path.insert(0, os.path.dirname(__file__) + '/..')
-import network as net
+from . import lexer as net_lexer
+from . import parser as net_parser
+from . import ast
 
 
-if __name__ == '__main__':
+class NetWiring(ast.NodeVisitor):
 
-    if len(sys.argv) < 2:
-        print('USAGE: {} source'.format(sys.argv[0]))
-        quit()
+    def __init__(self):
+        self.exprs = []
 
-    src_file = sys.argv[1]
+    def visit_Net(self, node, children):
+        self.exprs += [children['wiring']]
 
-    if not (os.path.isfile(src_file) and os.access(src_file, os.R_OK)):
-        print('Source file either does not exist or cannot be read.')
-        quit()
+    def visit_BinaryOp(self, node, children):
+        return (node.op, children['left'], children['right'])
 
-    # Import source code from docstring of source file.
-    src_name = os.path.basename(src_file)
-    src_dir = os.path.dirname(src_file)
-    src = imp.load_source(src_name, src_file)
-    src_code = src.__doc__
+    def visit_UnaryOp(self, node, children):
+        return (node.op, children['operand'])
 
-    cores = {name: func
-             for name, func in inspect.getmembers(src, inspect.isfunction)}
-    network = net.Network()
+    def visit_Vertex(self, node, children):
+        return node.name
 
-    # Parse source code.
-    lexer = lex.build()
-    parser = parse.build()
-    parser.parse(src_code, lexer=lexer)
-    ast = parse.ast
+    def generic_visit(self, node, _):
+        pass
 
-    # Look for declared synchronisers and compile them.
-    for name, decl in ast.decls.items():
-        if type(decl).__name__ == 'Synchroniser':
-            sync_obj = sync_compiler.build(src_dir + '/' + decl.name + '.sync', decl.macros)
-            ast.decls[name] = parse.Synchroniser(decl[0], decl[1], sync_obj)
 
-    # Network construction.
-    network.build(ast, cores)
+def parse(code):
+    lexer = net_lexer.build()
+    parser = net_parser.build()
 
-    # TODO: Must be done automatically after network construction.
-    network.set_root(network.node_id - 1)
+    net_ast = parser.parse(code, lexer=lexer)
 
-    for node_id in network.network.nodes():
-        node = network.node(node_id, True)
-        print(node.id, node, node.name)
-        print(node.inputs)
-        print(node.outputs)
-        print()
+    return net_ast
 
-    print(network.network.edges())
-
-    net.dump(network, 'tests/a.out')

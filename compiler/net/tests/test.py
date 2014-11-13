@@ -1,15 +1,33 @@
 '''
-net pic_step (in | out)
+net foo (i1 | i2, i3)
+  morph (nn) {
+    div / b1, b2 / joiner
+  }
 
-  net bar (g | p)
-    morph calc (N) {div / [mover_one, mover_two] / joiner}
+  morph (nn) {
+    div / b1, b2 / joiner,
+    (aa / bb, cc / dd) / ee,
+    zz / (yy / xx, ww / vv)
+  }
+
+  morph (nn) {
+    (aa / bb, cc / dd) / ee
+
+    where joiner .. div = glue
+  }
+
+  synch FOO
+  synch BAR [TRUE=FALSE, good=bad] ["/home/mkuznets"]
+
+  net bar (g1, g2, g3 | p1)
+    morph (N) {a / b / c}
   connect
-    (calc || k .. a* || c\)*..lff
+    (a .. b .. (a)) .. b || c || (d* .. d\)* .. e*
   end
 
-  morph move_particles (N) {div / [mover_one / joiner, mover_two / joiner]}
+  morph (N) {div / (mover_one / joiner, mover_two / joiner)}
 
 connect
-
+  ((f*) .. g)*\ .. d\* .. ( a .. b || c .. d)
 end
 '''
