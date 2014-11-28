@@ -82,22 +82,23 @@ class NodeVisitor(object):
         pass
 
     def traverse(self, node):
-        """ Called if no explicit visitor function exists for a
-            node. Implements preorder visiting of the node.
-        """
-
-        children = {}
-
-        for c_name, c in node.children():
-            if type(c) == list:
-                outcome = [self.traverse(i) for i in c]
-            else:
-                outcome = self.traverse(c)
-
-            children[c_name] = outcome
 
         method = 'visit_' + node.__class__.__name__
         visitor = getattr(self, method, self.generic_visit)
+
+        children = {}
+
+        if visitor.__doc__ != 'final':
+            # Skip the children
+
+            for c_name, c in node.children():
+                if type(c) == list:
+                    outcome = [self.traverse(i) for i in c]
+                else:
+                    outcome = self.traverse(c)
+
+                children[c_name] = outcome
+
         return visitor(node, children) if visitor else None
 
 
@@ -115,12 +116,8 @@ class Net(Node):
         nodelist = []
         if self.inputs is not None: nodelist.append(("inputs", self.inputs))
         if self.outputs is not None: nodelist.append(("outputs", self.outputs))
+        if self.decls is not None: nodelist.append(("decls", self.decls))
         if self.wiring is not None: nodelist.append(("wiring", self.wiring))
-        if expand:
-            for i, child in enumerate(self.decls or []):
-                nodelist.append(("decls[%d]" % i, child))
-        else:
-            nodelist.append(("decls", list(self.decls) or []))
         return tuple(nodelist)
 
     attr_names = ('is_pure','name',)
@@ -141,6 +138,22 @@ class PortList(Node):
 
     attr_names = ()
 
+class DeclList(Node):
+    def __init__(self, decls, coord=None):
+        self.decls = decls
+        self.coord = coord
+
+    def children(self, expand=False):
+        nodelist = []
+        if expand:
+            for i, child in enumerate(self.decls or []):
+                nodelist.append(("decls[%d]" % i, child))
+        else:
+            nodelist.append(("decls", list(self.decls) or []))
+        return tuple(nodelist)
+
+    attr_names = ()
+
 class Synchroniser(Node):
     def __init__(self, name, macros, path, ast, coord=None):
         self.name = name
@@ -157,19 +170,16 @@ class Synchroniser(Node):
     attr_names = ('name','macros','path',)
 
 class Morphism(Node):
-    def __init__(self, trigger, morph_list, override_list, coord=None):
+    def __init__(self, trigger, split, map, join, override_list, coord=None):
         self.trigger = trigger
-        self.morph_list = morph_list
+        self.split = split
+        self.map = map
+        self.join = join
         self.override_list = override_list
         self.coord = coord
 
     def children(self, expand=False):
         nodelist = []
-        if expand:
-            for i, child in enumerate(self.morph_list or []):
-                nodelist.append(("morph_list[%d]" % i, child))
-        else:
-            nodelist.append(("morph_list", list(self.morph_list) or []))
         if expand:
             for i, child in enumerate(self.override_list or []):
                 nodelist.append(("override_list[%d]" % i, child))
@@ -177,91 +187,7 @@ class Morphism(Node):
             nodelist.append(("override_list", list(self.override_list) or []))
         return tuple(nodelist)
 
-    attr_names = ('trigger',)
-
-class Morph(Node):
-    def __init__(self, split, map_list, join, coord=None):
-        self.split = split
-        self.map_list = map_list
-        self.join = join
-        self.coord = coord
-
-    def children(self, expand=False):
-        nodelist = []
-        if self.split is not None: nodelist.append(("split", self.split))
-        if self.join is not None: nodelist.append(("join", self.join))
-        if expand:
-            for i, child in enumerate(self.map_list or []):
-                nodelist.append(("map_list[%d]" % i, child))
-        else:
-            nodelist.append(("map_list", list(self.map_list) or []))
-        return tuple(nodelist)
-
-    attr_names = ()
-
-class MorphSplitMap(Node):
-    def __init__(self, split_map_list, join, coord=None):
-        self.split_map_list = split_map_list
-        self.join = join
-        self.coord = coord
-
-    def children(self, expand=False):
-        nodelist = []
-        if self.join is not None: nodelist.append(("join", self.join))
-        if expand:
-            for i, child in enumerate(self.split_map_list or []):
-                nodelist.append(("split_map_list[%d]" % i, child))
-        else:
-            nodelist.append(("split_map_list", list(self.split_map_list) or []))
-        return tuple(nodelist)
-
-    attr_names = ()
-
-class MorphMapJoin(Node):
-    def __init__(self, split, map_join_list, coord=None):
-        self.split = split
-        self.map_join_list = map_join_list
-        self.coord = coord
-
-    def children(self, expand=False):
-        nodelist = []
-        if self.split is not None: nodelist.append(("split", self.split))
-        if expand:
-            for i, child in enumerate(self.map_join_list or []):
-                nodelist.append(("map_join_list[%d]" % i, child))
-        else:
-            nodelist.append(("map_join_list", list(self.map_join_list) or []))
-        return tuple(nodelist)
-
-    attr_names = ()
-
-class SplitMap(Node):
-    def __init__(self, split, map, coord=None):
-        self.split = split
-        self.map = map
-        self.coord = coord
-
-    def children(self, expand=False):
-        nodelist = []
-        if self.split is not None: nodelist.append(("split", self.split))
-        if self.map is not None: nodelist.append(("map", self.map))
-        return tuple(nodelist)
-
-    attr_names = ()
-
-class MapJoin(Node):
-    def __init__(self, map, join, coord=None):
-        self.map = map
-        self.join = join
-        self.coord = coord
-
-    def children(self, expand=False):
-        nodelist = []
-        if self.map is not None: nodelist.append(("map", self.map))
-        if self.join is not None: nodelist.append(("join", self.join))
-        return tuple(nodelist)
-
-    attr_names = ()
+    attr_names = ('trigger','split','map','join',)
 
 class Override(Node):
     def __init__(self, join, split, sync, coord=None):
@@ -272,12 +198,9 @@ class Override(Node):
 
     def children(self, expand=False):
         nodelist = []
-        if self.join is not None: nodelist.append(("join", self.join))
-        if self.split is not None: nodelist.append(("split", self.split))
-        if self.sync is not None: nodelist.append(("sync", self.sync))
         return tuple(nodelist)
 
-    attr_names = ()
+    attr_names = ('join','split','sync',)
 
 class BinaryOp(Node):
     def __init__(self, op, left, right, coord=None):

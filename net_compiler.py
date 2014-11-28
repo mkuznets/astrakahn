@@ -8,6 +8,7 @@ import sys
 
 import compiler.net as net
 
+
 if __name__ == '__main__':
 
     if len(sys.argv) < 2:
@@ -26,11 +27,15 @@ if __name__ == '__main__':
     src = imp.load_source(src_name, src_file)
     src_code = src.__doc__
 
-    cores = {name: func
+    cores = {name: ('core', func)
              for name, func in inspect.getmembers(src, inspect.isfunction)}
 
     ast = net.parse(src_code)
 
-    #ast.show(attrnames=True, nodenames=True)
+    builder = net.backend.NetBuilder(cores, src_dir)
 
-    #net.dump(network, 'tests/a.out')
+    net = builder.compile(ast)
+    net.show()
+
+
+    #dump(network, 'tests/a.out')

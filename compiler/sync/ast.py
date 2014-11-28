@@ -78,7 +78,7 @@ class Node(object):
 
 class NodeVisitor(object):
 
-    def generic_visit(self, node):
+    def generic_visit(self, node, children):
         raise NotImplementedError('generic_visit is not implemented')
 
     def traverse(self, node):

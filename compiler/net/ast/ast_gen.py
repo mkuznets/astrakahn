@@ -224,22 +224,23 @@ class NodeVisitor(object):
         pass
 
     def traverse(self, node):
-        """ Called if no explicit visitor function exists for a
-            node. Implements preorder visiting of the node.
-        """
-
-        children = {}
-
-        for c_name, c in node.children():
-            if type(c) == list:
-                outcome = [self.traverse(i) for i in c]
-            else:
-                outcome = self.traverse(c)
-
-            children[c_name] = outcome
 
         method = 'visit_' + node.__class__.__name__
         visitor = getattr(self, method, self.generic_visit)
+
+        children = {}
+
+        if visitor.__doc__ != 'final':
+            # Skip the children
+
+            for c_name, c in node.children():
+                if type(c) == list:
+                    outcome = [self.traverse(i) for i in c]
+                else:
+                    outcome = self.traverse(c)
+
+                children[c_name] = outcome
+
         return visitor(node, children) if visitor else None
 
 

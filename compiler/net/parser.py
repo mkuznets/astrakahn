@@ -20,7 +20,7 @@ def p_net(p):
     p[0] = ast.Net(is_pure=bool(p[1]), name=p[3],
                    inputs=ast.PortList(p[5]),
                    outputs=ast.PortList(p[7]),
-                   decls=p[9] or [], wiring=p[11])
+                   decls=p[9], wiring=p[11])
 
 
 def p_port_list(p):
@@ -71,7 +71,7 @@ def p_decl_list_opt(p):
     decl_list_opt : decls_list
                   | empty
     '''
-    p[0] = p[1] or []
+    p[0] = ast.DeclList(p[1] or [])
 
 
 def p_decls_list(p):
@@ -79,7 +79,7 @@ def p_decls_list(p):
     decls_list : decl
                | decls_list decl
     '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
+    p[0] = p[1] if len(p) == 2 else p[1] + p[2]
 
 
 def p_decl(p):
@@ -88,7 +88,7 @@ def p_decl(p):
          | synchroniser
          | morphism
     '''
-    p[0] = p[1]
+    p[0] = p[1] if type(p[1]) == list else [p[1]]
 
 
 def p_synchroniser(p):
@@ -106,17 +106,17 @@ def p_macros_opt(p):
 
 def p_path_opt(p):
     '''
-    path_opt : LBRACKET STRING RBRACKET
+    path_opt : STRING
              | empty
     '''
-    p[0] = p[2][1:-1] if p[1] != '' else ''
+    p[0] = p[1][1:-1] if p[1] != '' else ''
 
 
 def p_morphism(p):
     '''
     morphism : MORPH LPAREN ID RPAREN LBRACE morph_body RBRACE
     '''
-    p[0] = ast.Morphism(trigger=p[3], **p[6])
+    p[0] = [ast.Morphism(p[3], *m) for m in p[6]]
 
 
 def p_morph_body(p):
@@ -124,7 +124,21 @@ def p_morph_body(p):
     morph_body : morph_list
                | morph_list WHERE override_list
     '''
-    p[0] = {'morph_list': p[1], 'override_list': p[3] if len(p) == 4 else []}
+
+    override = {}
+    if len(p) == 4:
+        # Overrine
+        for ovr in p[3]:
+            override[ovr.join] = override.get(ovr.join, []) + [ovr]
+            override[ovr.split] = override.get(ovr.split, []) + [ovr]
+
+    morph_body = []
+    for m in p[1]:
+        ovr = list(set(override.get(m[0], [])) | set(override.get(m[2], [])))
+        morph_body.append(m + (ovr,))
+
+
+    p[0] = morph_body
 
 
 def p_morph_list(p):
@@ -132,7 +146,7 @@ def p_morph_list(p):
     morph_list : morph
                | morph_list COMMA morph
     '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
+    p[0] = p[1] if len(p) == 2 else p[1] + p[3]
 
 
 def p_morph(p):
@@ -148,21 +162,21 @@ def p_split_map_join(p):
     '''
     split_map_join : split SLASH map_list SLASH join
     '''
-    p[0] = ast.Morph(p[1], p[3], p[5])
+    p[0] = [(p[1], m, p[5]) for m in p[3]]
 
 
 def p_splitmap_join(p):
     '''
     splitmap_join : LPAREN split_map_list RPAREN SLASH join
     '''
-    p[0] = ast.MorphSplitMap(p[2], p[5])
+    p[0] = [sm + (p[5], ) for sm in p[2]]
 
 
 def p_split_mapjoin(p):
     '''
     split_mapjoin : split SLASH LPAREN map_join_list RPAREN
     '''
-    p[0] = ast.MorphMapJoin(p[1], p[4])
+    p[0] = [(p[1], ) + mj for mj in p[4]]
 
 
 def p_map_list(p):
@@ -191,26 +205,26 @@ def p_map_join_list(p):
 
 def p_split_map(p):
     '''split_map : split SLASH map'''
-    p[0] = ast.SplitMap(p[1], p[3])
+    p[0] = (p[1], p[3])
 
 
 def p_map_join(p):
     '''map_join : map SLASH join'''
-    p[0] = ast.MapJoin(p[1], p[3])
+    p[0] = (p[1], p[3])
 
 
 def p_map(p):
-    '''map : vertex'''
+    '''map : ID'''
     p[0] = p[1]
 
 
 def p_split(p):
-    '''split : vertex'''
+    '''split : ID'''
     p[0] = p[1]
 
 
 def p_join(p):
-    '''join : vertex'''
+    '''join : ID'''
     p[0] = p[1]
 
 
@@ -223,7 +237,7 @@ def p_override_list(p):
 
 
 def p_override(p):
-    '''override : join SERIAL split EQUAL vertex'''
+    '''override : join SERIAL split EQUAL ID'''
     p[0] = ast.Override(p[1], p[3], p[5])
 
 
@@ -256,7 +270,7 @@ def p_wiring_exp(p):
 def p_vertex(p):
     '''
     vertex : vertex_name
-           | LE renaming_opt VBAR vertex_name VBAR renaming_opt GE
+           | LE renaming_opt VBAR vertex_name_or_merge VBAR renaming_opt GE
     '''
 
     if len(p) == 2:
@@ -264,6 +278,17 @@ def p_vertex(p):
 
     else:
         p[0] = ast.Vertex(inputs=p[2], outputs=p[6], **p[4])
+
+
+def p_vertex_name_or_merge(p):
+    '''
+    vertex_name_or_merge : vertex_name
+                         | MERGE
+    '''
+    if p[1] == '~':
+        p[0] = {'name': '~', 'category': None}
+    else:
+        p[0] = p[1]
 
 
 def p_vertex_name(p):

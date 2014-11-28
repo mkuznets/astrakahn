@@ -1,4 +1,4 @@
-synch cpu (instr, load_in, mem_in, cin | stdout, load_out, mem_out, cout)
+synch cpu (instr, load, mem, c | stdout, load, mem, c)
 {
   store mem;
   state int(1) found;
@@ -13,7 +13,7 @@ synch cpu (instr, load_in, mem_in, cin | stdout, load_out, mem_out, cout)
 
     # Set found mem-value to acc.
     on:
-      load_in.(value) {
+      load.(value) {
         set acc = [value];
       }
 
@@ -21,7 +21,7 @@ synch cpu (instr, load_in, mem_in, cin | stdout, load_out, mem_out, cout)
     elseon:
       instr.(opc, op0) {
         set opcode = [opc], operand = [op0];
-        send (act: [1]) => cout;
+        send (act: [1]) => c;
         goto idecode;
       }
   }
@@ -30,38 +30,38 @@ synch cpu (instr, load_in, mem_in, cin | stdout, load_out, mem_out, cout)
   idecode {
     on:
       # Load
-      cin.(act) & [opcode == LD] {
+      c.(act) & [opcode == LD] {
         set found = [0];
-        send @[0] => mem_out;
+        send @[0] => mem;
         goto search;
       }
 
       # Store
-      cin.(act) & [opcode == ST] {
-        send (addr: operand || value: [acc]) => mem_out;
+      c.(act) & [opcode == ST] {
+        send (addr: operand || value: [acc]) => mem;
         goto start;
       }
 
       # Addition
-      cin.(act) & [opcode == ADD] {
+      c.(act) & [opcode == ADD] {
         set acc = [acc + operand];
         goto start;
       }
 
       # Multiplication
-      cin.(act) & [opcode == MUL] {
+      c.(act) & [opcode == MUL] {
         set acc = [acc * operand];
         goto start;
       }
 
       # Print
-      cin.(act) & [opcode == PRT] {
+      c.(act) & [opcode == PRT] {
         send 'acc => stdout;
         goto start;
       }
 
       # Error: couldn't decode instruction.
-      cin.else {
+      c.else {
         send (error: [1]) => stdout;
         goto start;
       }
@@ -70,25 +70,25 @@ synch cpu (instr, load_in, mem_in, cin | stdout, load_out, mem_out, cout)
   search {
     on:
       # Skip.
-      mem_in.(addr, value) & [addr != operand] {
-        send this => mem_out;
+      mem.(addr, value) & [addr != operand] {
+        send this => mem;
       }
 
       # Match.
-      mem_in.(addr || tail) & [addr == operand] {
+      mem.(addr || tail) & [addr == operand] {
         set mem = this,
             found = [1];
-        send tail => mem_out;
+        send tail => mem;
       }
 
       # End of list: success
-      mem_in.@d & [d == 0 && found == 1] {
-        send mem => load_out;
+      mem.@d & [d == 0 && found == 1] {
+        send mem => load;
         goto start;
       }
 
       # End of list: not found
-      mem_in.@d & [d == 0 && found == 0] {
+      mem.@d & [d == 0 && found == 0] {
         send (error: [1]) => stdout;
         goto start;
       }

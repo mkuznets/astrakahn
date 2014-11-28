@@ -22,7 +22,7 @@ def macro_subst(code, macros):
         if t.type == 'ID' and t.value in macros:
             code_final += str(macros[t.value])
         else:
-            code_final += t.value
+            code_final += str(t.value)
 
     return code_final
 
@@ -30,7 +30,7 @@ def macro_subst(code, macros):
 def parse(code, macros={}):
 
     if macros:
-        code = macro_subst(code)
+        code = macro_subst(code, macros)
 
     sync_lexer.disable_ws()
 

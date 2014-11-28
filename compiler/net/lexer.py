@@ -5,7 +5,7 @@ keywords = ['NET', 'PURE', 'CONNECT', 'END', 'MORPH', 'WHERE', 'SYNCH']
 tokens = keywords + [
     'ID', 'NUMBER', 'STRING', 'SERIAL', 'PARALLEL', 'STAR', 'BACKSLASH', 'COMMA', 'VBAR',
     'LE', 'GE', 'LPAREN', 'RPAREN', 'LBRACKET', 'RBRACKET', 'SLASH', 'EQUAL',
-    'LBRACE', 'RBRACE', 'COLON'
+    'LBRACE', 'RBRACE', 'COLON', 'MERGE'
 ]
 
 # Tokens
@@ -29,6 +29,7 @@ t_EQUAL         = r'='
 t_LBRACE        = r'{'
 t_RBRACE        = r'}'
 t_COLON         = r':'
+t_MERGE         = r'~'
 
 keywords_map = {k.lower(): k for k in keywords}
 

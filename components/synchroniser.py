@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 import communication as comm
-from . import abstract
+from . import generic
 
 
-class Sync(abstract.Vertex):
+class Sync(generic.Vertex):
 
     def __init__(self, name, inputs, outputs, scope, states):
 
@@ -44,15 +44,6 @@ class Sync(abstract.Vertex):
         return self.states[self.state_name]
 
     #---------------------------------------------------
-
-    def inputs_available(self):
-        port_list = []
-
-        for i, p in enumerate(self.inputs):
-            if not p['queue'].is_empty():
-                port_list.append(i)
-
-        return port_list
 
     def outputs_blocked(self):
 
@@ -114,6 +105,8 @@ class Sync(abstract.Vertex):
         self.port_handler.hit()
 
         self.run()
+
+        return None
 
     def run(self):
 
@@ -560,7 +553,7 @@ class Variable:
         return self.value
 
     def set(self, value):
-        raise NotImplemented('Set method not implemented for abstract type.')
+        raise NotImplemented('Set method not implemented for generic type.')
 
 
 class Alias(Variable):

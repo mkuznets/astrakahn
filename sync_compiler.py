@@ -17,7 +17,8 @@ if __name__ == '__main__':
         print('Source file either does not exist or cannot be read.')
         quit()
 
-    src_code = open(src_file, 'r').read()
+    with open(src_file, 'r') as f
+        src_code = f.read()
 
     ast = sync.parse(src_code)
 

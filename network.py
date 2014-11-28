@@ -2,418 +2,126 @@
 
 import os
 import sys
-import copy
-import networkx as nx
 
 import components
+import pool
+import time
 import communication as comm
 
-sys.path.insert(0, os.path.dirname(__file__) + '/compiler')
-import utils
+from compiler.net import ast
+
+from queue import Empty as Empty
+
+
+class VerticesVisitor(components.NodeVisitor):
+
+    def __init__(self):
+        self.vertices = {}
+
+    def generic_visit(self, node, children):
+        if isinstance(node, components.Vertex):
+            self.vertices.update({node.id: node})
 
 
 class Network:
 
-    def __init__(self):
-        self.network = nx.DiGraph()
-        self.root = None
-        self.node_id = 0
+    def __init__(self, network, node_id=1000):
 
-    def node(self, node_id, obj=False):
-        if obj:
-            return self.network.node[node_id]['obj']
-        else:
-            return self.network.node[node_id]
+        self.network = network
+        self.node_id = node_id
 
-    def has_node(self, node_id):
-        return (node_id in self.network)
+        # Cache of vertices in order to avoid network traversal.
+        gv = VerticesVisitor()
+        gv.traverse(self.network)
+        self.vertices_cache = gv.vertices
 
-    def node_busy(self, node_id):
-        obj = self.network.node[node_id]['obj']
-        return obj.busy
+        # Processing pool.
+        self.pm = None
 
-    def copy_subnet(self, source_id):
-        subnet = nx.dfs_tree(self.network, source_id)
+        self.initial_input = None
 
-        # Copy node attributes from the original network.
-        for node_id in subnet.nodes():
-            node = self.node(node_id)
-            subnet.node[node_id]['obj'] = node['obj'].copy()
-            subnet.node[node_id]['type'] = node['type']
+    def show(self):
+        self.network.show()
 
-        # New node identifiers.
+    def init_pool(self, nproc):
+        self.pm = pool.PoolManager(nproc)
+        self.pm.start()
 
-        # Postorder for later use in rewiring.
-        old_ids = list(nx.dfs_postorder_nodes(subnet, source_id))
-        new_ids = [self.node_id + i for i in range(len(old_ids))]
-        self.node_id += len(old_ids)
+    def init_input(self, input_map):
+        input_names = {port['name']: pid
+                       for pid, port in enumerate(self.network.inputs)}
 
-        mapping = dict(zip(old_ids, new_ids))
+        for pname, container in input_map.items():
+            if pname in input_names:
+                pid = input_names[pname]
 
-        nx.relabel_nodes(subnet, mapping, copy=False)
-        new_source_id = mapping[source_id]
+                for msg in container:
+                    self.network.inputs[pid]['queue'].put(msg)
 
-        # Recover internal wiring.
+    def close_pool(self):
+        self.pm.finish()
 
-        mounted_inputs = {}
-        mounted_outputs = {}
+    def run(self, nproc=2):
+        self.init_pool(nproc)
 
-        for node_id in old_ids:
-            old_node = self.node(node_id, True)
+        while True:
+            for id, vertex in self.vertices_cache.items():
 
-            new_id = mapping[node_id]
-            new_node = subnet.node[new_id]['obj']
+                # NOTE: schedule (ready_boxes list) is now responsible for
+                # availablility of boxes.
+                # 1. Test if the box is already running. If it is, skip it.
+                if vertex.busy:
+                    continue
 
-            new_node.id = new_id
+                # 2. Test if the conditions on channels are sufficient for the
+                #    box execution. Is they're not, skip the box.
+                if vertex.is_ready() != (True, True):
+                    continue
 
-            # Recover internal wiring.
-            if subnet.node[new_id]['type'] == 'vertex':
+                # 3. Get input message and form a list of arguments for the
+                #    box function to apply.
+                args = vertex.fetch()
 
-                for p in old_node.inputs:
-                    src = p['src']
-                    if src is not None and src[0] in mapping:
-                        new_node.inputs[p['id']]['src'] = (mapping[src[0]], src[1])
+                if args is None:
+                    # 3.1 Input message were handled in fetch(), box execution
+                    #     is not required.
+                    continue
 
-                    if p['mnt']:
-                        new_node.inputs[p['id']]['mnt'] = True
-                        mounted_inputs[p['name']] = new_node.inputs[p['id']]
+                # 4. Assemble all the data needed for the task to send in
+                #    the processing pool.
+                task_data = {'vertex_id': id, 'args': args}
 
-                for p in old_node.outputs:
-                    dst = p['dst']
-                    if dst is not None and dst[0] in mapping:
-                        new_dst = mapping[dst[0]]
-                        node_dst = subnet.node[new_dst]['obj']
+                # 5. Send box function and task data to processing pool.
+                #    NOTE: this call MUST always be non-blocking.
+                self.pm.enqueue(vertex.core, task_data)
+                vertex.busy = True
 
-                        new_node.outputs[p['id']]['dst'] = (new_dst, dst[1])
-                        new_node.outputs[p['id']]['to'] = node_dst.inputs[dst[1]]['queue']
+            # Check for responses from processing pool.
 
-                    if p['mnt']:
-                        new_node.outputs[p['id']]['mnt'] = True
-                        mounted_outputs[p['name']] = new_node.outputs[p['id']]
+            while True:
+                try:
+                    # Wait responses from the pool if there're no other messages in
+                    # queues to process.
+                    need_block = False
 
-            # Mount ports to net.
-            if subnet.node[new_id]['type'] == 'net':
+                    if need_block:
+                        print("NOTE: waiting result")
 
-                inputs = {p['name']: i for i, p in enumerate(new_node.inputs)}
-                for name, p in mounted_inputs.items():
-                    new_node.inputs[inputs[name]] = p
+                    # Vertex response.
+                    response = self.pm.out_queue.get(need_block)
 
-                outputs = {p['name']: i for i, p in enumerate(new_node.outputs)}
-                for name, p in mounted_outputs.items():
-                    new_node.outputs[outputs[name]] = p
+                    if response.vertex_id not in self.vertices_cache:
+                        raise ValueError('Vertex corresponsing to the response '
+                                         'does not exist.')
 
-                mounted_inputs = {}
-                mounted_outputs = {}
+                    vertex = self.vertices_cache[response.vertex_id]
 
-        #for node_id in subnet.nodes():
-        #    node = subnet.node[node_id]['obj']
-        #    print(node.id, node, node.name)
-        #    print(node.inputs)
-        #    print(node.outputs)
-        #    print()
-        #print()
-        #print()
-        #print()
+                    # Commit the result of computation, e.g. send it to destination
+                    # vertices.
+                    sent_to = vertex.commit(response)
+                    vertex.busy = False
 
-        self.network = nx.disjoint_union(self.network, subnet)
+                except Empty:
+                    break
 
-        return new_source_id
-
-    ## Network construction methods.
-    ##
-
-    def add_net(self, net, node_ids):
-        net_id = self.node_id
-        self.node_id += 1
-
-        net.id = net_id
-        self.network.add_node(net_id, {'type': 'net', 'obj': net})
-
-        # Collect components of the net as predesessors.
-        for n in node_ids:
-            self.network.add_edge(net_id, n)
-        return net_id
-
-    def add_vertex(self, vertex):
-        vertex_id = self.node_id
-        self.node_id += 1
-
-        vertex.id = vertex_id
-        self.network.add_node(vertex_id, {'type': 'vertex', 'obj': vertex})
-
-        return vertex_id
-
-    def set_root(self, node_id):
-        self.root = node_id
-
-    def build(self, node, cores):
-
-        if node is None:
-            return
-
-        assert(utils.is_namedtuple(node))
-
-        node_type = type(node).__name__
-
-        if node_type == 'Net':
-
-            ## Traverse in depth first.
-            scope_ids = []
-            for name, decl in node.decls.items():
-                scope_ids += self.build(decl, cores)
-
-            # Get names of the objects within the scope.
-            scope = {self.node(vertex_id, True).name : vertex_id for vertex_id in scope_ids}
-
-            # Add constituents of the net.
-            vertices = self.build_net(node, cores, scope)
-
-            # Allocate net object.
-            net = components.Net(node.name, node.inputs, node.outputs)
-
-            # Merge identially named channels.
-            copiers = self.flatten_network(vertices)
-            vertices += copiers
-
-            ## Mount ports from boxes to net.
-            #
-            gp = self.get_global_ports(vertices)
-
-            # Inputs.
-            for i, name in enumerate(node.inputs):
-                if name not in gp['in']:
-                    raise ValueError('There is no port named `{}\' '
-                                     'in the net.'.format(name))
-                ports = gp['in'][name]
-                assert(len(ports) == 1)
-                net.inputs[i] = ports[0][1]
-                net.inputs[i]['mnt'] = True
-
-            # Outputs.
-            for i, name in enumerate(node.outputs):
-                if name not in gp['out']:
-                    raise ValueError('There is no port named `{}\''
-                                     'in the net.'.format(name))
-                ports = gp['out'][name]
-                assert(len(ports) == 1)
-                net.outputs[i] = ports[0][1]
-                net.outputs[i]['mnt'] = True
-
-            net_id = self.add_net(net, vertices + scope_ids)
-
-            return [net_id]
-
-        elif node_type == 'Morphism':
-            # Handle morph declaration
-            # Add morphism net
-            pass
-
-        elif node_type == 'Synchroniser':
-            vertex_id = self.add_vertex(node.obj)
-            return [vertex_id]
-
-    def build_net(self, node, cores, scope):
-
-        # Sanity check: declarations and boxes namespaces must be disjount.
-        # TODO: it must be garanteed be the compiler.
-        assert(not set(cores) & set(scope))
-
-        ast = node.wiring
-        vertices = []
-
-        # Wiring AST: postorder traversal
-        ids = nx.dfs_postorder_nodes(ast, ast.graph['root'])
-        stack = []
-
-        for nid in ids:
-            ast_node = ast.node[nid]
-
-            if ast_node['type'] == 'node':
-
-                name = ast_node['value']
-
-                if name in cores:  # Box
-
-                    box_core = cores[name]
-                    # Box properties and constructor.
-                    box = utils.box(box_core.__doc__)
-
-                    # Generate names of ports.
-                    inputs = [(ast_node['inputs'].get(i, '_{}'.format(i)))
-                              for i in range(box.n_inputs)]
-                    outputs = [(ast_node['outputs'].get(i, '_{}'.format(i)))
-                               for i in range(box.n_outputs)]
-
-                    # Create vertex object and insert to network.
-                    vertex = box.box(name, inputs, outputs, box_core)
-                    vertex_id = self.add_vertex(vertex)
-
-                elif name in scope:  # Net, synchroniser or morphism
-                    vertex_id = scope[name]
-                    #vertex_id = self.copy_subnet(vertex_id)
-
-                    obj = self.node(vertex_id, True)
-
-                    # Rename ports if needed.
-                    if ast_node['inputs'] or ast_node['inputs']:
-                        # TODO: these loops are not safe unless it is checked
-                        # by compiler that custom inputs are in valid range.
-                        for i, port_name in ast_node['inputs'].items():
-                            obj.inputs[i]['name'] = port_name
-                        for i, port_name in ast_node['outputs'].items():
-                            obj.outputs[i]['name'] = port_name
-
-                else:
-                    raise ValueError('Wrong box name.')
-
-                stack.append([vertex_id])
-                vertices.append(vertex_id)
-
-            elif ast_node['type'] == 'operator':
-                rhs = stack.pop()
-                lhs = stack.pop()
-                operator = ast_node['value']
-
-                # Merge identially named channels of both operands.
-                copiers = self.flatten_network(lhs)
-                vertices += copiers
-
-                copiers = self.flatten_network(rhs)
-                vertices += copiers
-
-                # Apply wiring to operands.
-                self.add_connection(operator, lhs, rhs)
-
-                stack.append(lhs + rhs)
-
-        return vertices
-
-    def add_connection(self, operator, lhs, rhs):
-
-        lhs_outputs = self.get_global_ports(lhs)['out']
-        rhs_inputs = self.get_global_ports(rhs)['in']
-
-        if operator == '||':
-            # Parallel connection: wiring is not required.
-            pass
-
-        elif operator == '..':
-            # Serial connection: all outputs of the first operand are wired to
-            # identically named inputs of the second operand if they exist.
-
-            # Compute identical names.
-            common_names = lhs_outputs.keys() & rhs_inputs.keys()
-
-            for name in common_names:
-                # Channels with the same names must be already merged.
-                assert(len(lhs_outputs[name]) == 1
-                       and len(rhs_inputs[name]) == 1)
-
-                # Make `physical' connection between ports.
-                self.add_wire(lhs_outputs[name][0], rhs_inputs[name][0])
-
-        else:
-            raise ValueError('Wrong wiring operator.')
-
-    def add_wire(self, pa, pb):
-        src_vertex, src_port = pa
-        dst_vertex, dst_port = pb
-
-        src_port['to'] = dst_port['queue']
-        src_port['dst'] = (dst_vertex, dst_port['id'])
-        dst_port['src'] = (src_vertex, src_port['id'])
-
-    def get_global_ports(self, vertices):
-
-        global_ports = {'in': {}, 'out': {}}
-
-        for vertex_id in vertices:
-            vertex = self.node(vertex_id)['obj']
-
-            for p in vertex.inputs:
-                if p['src'] is None:
-                    if p['name'] in global_ports['in']:
-                        global_ports['in'][p['name']].append((vertex_id, p))
-                    else:
-                        global_ports['in'][p['name']] = [(vertex_id, p)]
-
-            for p in vertex.outputs:
-                if p['dst'] is None:
-                    if p['name'] in global_ports['out']:
-                        global_ports['out'][p['name']].append((vertex_id, p))
-                    else:
-                        global_ports['out'][p['name']] = [(vertex_id, p)]
-
-        return global_ports
-
-    def flatten_network(self, vertices):
-
-        copiers = []
-
-        gp = self.get_global_ports(vertices)
-
-        # Merge input ports.
-        for name, ports in gp['in'].items():
-            np = len(ports)
-            if np > 1:
-                copier_name = '{}_1_to_{}'.format(name, np)
-                copier = components.Copier(copier_name, [name], [name]*np)
-                copier_id = self.add_vertex(copier)
-                copiers.append(copier_id)
-
-                for i, port in enumerate(ports):
-                    self.add_wire((copier_id, copier.outputs[i]), port)
-
-        # Merge output ports.
-        for name, ports in gp['out'].items():
-            np = len(ports)
-            if np > 1:
-                copier_name = '{}_{}_to_1'.format(name, np)
-                copier = components.Copier(copier_name, [name]*np, [name])
-                copier_id = self.add_vertex(copier)
-                copiers.append(copier_id)
-
-                for i, port in enumerate(ports):
-                    self.add_wire(port, (copier_id, copier.inputs[i]))
-
-        return copiers
-
-
-def dump(network, output_file=None):
-    import dill
-    import marshal
-
-    # Dump core functions throughout the network to allow the Network
-    # object to be serialized.
-    for n in network.network.nodes():
-        obj = network.node(n)['obj']
-        if hasattr(obj, 'core') and obj.core is not None:
-            name = obj.core.__name__
-            obj.core = (name, marshal.dumps(obj.core.__code__))
-
-    if output_file is None:
-        return dill.dumps(network)
-    else:
-        dill.dump(network, open(output_file, 'wb'))
-
-
-def load(obj=None, input_file=None):
-    import dill
-    import marshal
-    import types
-
-    if obj is not None:
-        network = dill.loads(obj)
-    elif input_file is not None:
-        network = dill.load(open(input_file, 'rb'))
-    else:
-        raise ValueError('Either object or input file must be specified.')
-
-    # Deserialize functions' code.
-    for n in network.network.nodes():
-        obj = network.node(n)['obj']
-        if hasattr(obj, 'core') and obj.core is not None:
-            code = marshal.loads(obj.core[1])
-            obj.core = types.FunctionType(code, globals(), obj.core[0])
-
-    return network
+        self.close_pool()

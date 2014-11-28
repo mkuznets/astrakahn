@@ -66,8 +66,8 @@ class ASTMorphism(ast.NodeVisitor):
         return ('override', children['join'], children['split'],
                 children['sync'])
 
-    def visit_Vertex(self, node, _):
-        return node.name
+    def visit_ID(self, node, _):
+        return node.value
 
 
 class TestParser(unittest.TestCase):
@@ -215,27 +215,6 @@ class TestParser(unittest.TestCase):
             ], [
                 ('override', 'joiner', 'div', 'glue'),
                 ('override', 'ee', 'aa', 'bypass'),
-            ])
-        ]
-
-        self._check_morphism(testcase, reference)
-
-        #---------------------------------------------------------------------
-        # Optional renaming brackets
-
-        testcase = '''
-        morph (nn) {
-          <|div|> / <|b1|>, <|b2|> / <|joiner|>
-
-          where <|joiner|> .. <|div|> = <|glue|>
-        }
-        '''
-
-        reference = [
-            ('morphism', 'nn', [
-                ('morph', 'div', ['b1', 'b2'], 'joiner'),
-            ], [
-                ('override', 'joiner', 'div', 'glue'),
             ])
         ]
 

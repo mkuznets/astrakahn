@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 import communication as comm
-from . import abstract
+from . import generic
 
-class Transductor(abstract.Box):
+class Transductor(generic.Box):
 
     def __init__(self, name, inputs, outputs, core):
         super(Transductor, self).__init__(name, inputs, outputs)
@@ -46,7 +46,31 @@ class Printer(Transductor):
         return (input_ready, True)
 
 
-class Inductor(abstract.Box):
+class Executor(generic.Box):
+    '''
+    Temporary class of vertex, just for debugging
+    '''
+
+    def __init__(self, name, inputs, outputs, core):
+        super(Executor, self).__init__(name, inputs, outputs)
+        self.core = core
+
+    def fetch(self):
+        inputs = self.inputs_available()
+        m = [(pid, self.inputs[pid]['name'], self.get(pid)) for pid in inputs]
+        return [m]
+
+    def is_ready(self):
+
+        # Check if there's an input message.
+        input_ready = self.input_ready()
+        return (input_ready, True)
+
+    def commit(self, response):
+        pass
+
+
+class Inductor(generic.Box):
 
     def __init__(self, name, inputs, outputs, core):
         super(Inductor, self).__init__(name, inputs, outputs)
@@ -82,11 +106,14 @@ class Inductor(abstract.Box):
             print(response.action, 'is not implemented.')
 
 
-class DyadicReductor(abstract.Box):
+class DyadicReductor(generic.Box):
 
-    def __init__(self, name, inputs, outputs, core):
+    def __init__(self, name, inputs, outputs, core, ordered, segmented):
         super(DyadicReductor, self).__init__(name, inputs, outputs)
         self.core = core
+
+        self.ordered = ordered
+        self.segmented = segmented
 
     def is_ready(self):
 
@@ -149,10 +176,10 @@ class DyadicReductor(abstract.Box):
             print(response.action, 'is not implemented.')
 
 
-class Copier(abstract.Box):
+class Merger(generic.Box):
 
     def __init__(self, name, inputs, outputs, core=None):
-        super(Copier, self).__init__(name, inputs, outputs)
+        super(Merger, self).__init__(name, inputs, outputs)
 
     def fetch(self):
         for i in range(self.n_inputs):

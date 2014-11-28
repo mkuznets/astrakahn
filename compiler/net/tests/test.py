@@ -8,12 +8,16 @@ net foo (i1 | i2, i3)
     div / b1, b2 / joiner,
     (aa / bb, cc / dd) / ee,
     zz / (yy / xx, ww / vv)
+
+    where ee .. zz = fff
   }
 
-  morph (nn) {
+  morph (lllll) {
     (aa / bb, cc / dd) / ee
 
-    where joiner .. div = glue
+    where joiner .. div = glue,
+          aa .. cc = fff,
+          aa .. zz = aaa
   }
 
   synch FOO

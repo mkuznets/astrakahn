@@ -6,6 +6,7 @@ import collections
 # For shared arrays
 import ctypes
 
+import os
 import marshal
 import types
 
@@ -29,9 +30,14 @@ def core_wrapper(core, task_data):
         if type(args[i]) == data.ref:
             args[i] = data.obj(args[i], data.to_numpy(args[i]))
 
-    action, out_mapping, aux_data = core(*args)
+    output = core(*args)
 
-    return Result(vertex_id, action, out_mapping, aux_data)
+    if output is None:
+        return Result(vertex_id, '', {}, None)
+
+    else:
+        action, out_mapping, aux_data = output
+        return Result(vertex_id, action, out_mapping, aux_data)
 
 
 class PoolManager:
@@ -62,7 +68,8 @@ class PoolManager:
 
         while True:
             task = self.in_queue.get()
-            pool.apply_async(core_wrapper, task, callback=self.dispatch_result)
+            pool.apply_async(core_wrapper, task, callback=self.dispatch_result,
+                             error_callback=print)
 
         pool.close()
         pool.join()
