@@ -10,6 +10,8 @@ import os
 import marshal
 import types
 
+import communication as comm
+
 import data_objects as data
 
 Result = collections.namedtuple('Result',
@@ -37,6 +39,12 @@ def core_wrapper(core, task_data):
 
     else:
         action, out_mapping, aux_data = output
+
+        out_mapping = {p: comm.Record(m) for p, m in out_mapping.items()}
+
+        if aux_data:
+            aux_data = comm.Record(aux_data)
+
         return Result(vertex_id, action, out_mapping, aux_data)
 
 

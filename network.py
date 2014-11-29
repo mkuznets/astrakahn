@@ -33,12 +33,15 @@ class Network:
         # Cache of vertices in order to avoid network traversal.
         gv = VerticesVisitor()
         gv.traverse(self.network)
-        self.vertices_cache = gv.vertices
+        self.vc = gv.vertices
 
         # Processing pool.
         self.pm = None
 
         self.initial_input = None
+
+        self.ready = set()
+        self.potential = set()
 
     def show(self):
         self.network.show()
@@ -61,22 +64,19 @@ class Network:
     def close_pool(self):
         self.pm.finish()
 
-    def run(self, nproc=2):
+    def run(self, nproc=1):
         self.init_pool(nproc)
 
+        self.ready = set(v for v in self.vc
+                         if self.vc[v].is_ready() == (True, True))
+
         while True:
-            for id, vertex in self.vertices_cache.items():
+            vertex_id = self.ready.pop()
+            vertex = self.vc[vertex_id]
 
-                # NOTE: schedule (ready_boxes list) is now responsible for
-                # availablility of boxes.
-                # 1. Test if the box is already running. If it is, skip it.
-                if vertex.busy:
-                    continue
-
-                # 2. Test if the conditions on channels are sufficient for the
-                #    box execution. Is they're not, skip the box.
-                if vertex.is_ready() != (True, True):
-                    continue
+            while True:
+                assert(not vertex.busy)
+                assert(vertex.is_ready() == (True, True))
 
                 # 3. Get input message and form a list of arguments for the
                 #    box function to apply.
@@ -85,43 +85,51 @@ class Network:
                 if args is None:
                     # 3.1 Input message were handled in fetch(), box execution
                     #     is not required.
-                    continue
+                    self._impact(vertex)
+                    break
 
                 # 4. Assemble all the data needed for the task to send in
                 #    the processing pool.
-                task_data = {'vertex_id': id, 'args': args}
+                task_data = {'vertex_id': vertex_id, 'args': args}
 
                 # 5. Send box function and task data to processing pool.
-                #    NOTE: this call MUST always be non-blocking.
                 self.pm.enqueue(vertex.core, task_data)
                 vertex.busy = True
 
-            # Check for responses from processing pool.
+                break
 
+            # Check for responses from processing pool.
             while True:
                 try:
-                    # Wait responses from the pool if there're no other messages in
-                    # queues to process.
-                    need_block = False
-
-                    if need_block:
-                        print("NOTE: waiting result")
-
-                    # Vertex response.
-                    response = self.pm.out_queue.get(need_block)
-
-                    if response.vertex_id not in self.vertices_cache:
-                        raise ValueError('Vertex corresponsing to the response '
-                                         'does not exist.')
-
-                    vertex = self.vertices_cache[response.vertex_id]
-
-                    # Commit the result of computation, e.g. send it to destination
-                    # vertices.
-                    sent_to = vertex.commit(response)
-                    vertex.busy = False
-
+                    response = self.pm.out_queue.get(not bool(self.ready))
                 except Empty:
                     break
 
+                if response.vertex_id not in self.vc:
+                    raise ValueError('Vertex corresponsing to the response '
+                                     'does not exist.')
+
+                vertex = self.vc[response.vertex_id]
+
+                # Commit the result of computation, e.g. send it to destination
+                # vertices.
+                sent_to = vertex.commit(response)
+                vertex.busy = False
+
+                self._impact(vertex)
+
+            # Test potentially ready vertices.
+            for vid in self.potential:
+                vertex = self.vc[vid]
+                if (vertex.is_ready() == (True, True)) and not vertex.busy:
+                    self.ready.add(vid)
+            self.potential.clear()
+
         self.close_pool()
+
+    def _impact(self, vertex):
+        if (vertex.is_ready() == (True, True)) and not vertex.busy:
+            self.ready.add(vertex.id)
+
+        self.potential |= set(dst[0] for dst in vertex.departures)
+        del vertex.departures[:]

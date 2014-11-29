@@ -90,6 +90,8 @@ class Vertex(Node):
         # Flag indicating that the box is processing another message.
         self.busy = False
 
+        self.departures = []
+
     #--------------------------------------------------------------------------
 
     def is_ready(self):
@@ -180,7 +182,7 @@ class Vertex(Node):
             port = self.outputs[port_id]
 
             port['to'].put(msg)
-            #self.departures.append(port['dst'])
+            self.departures.append(port['dst'])
 
     def send_to_range(self, msg, rng):
         mapping = {i: msg for i in rng}
