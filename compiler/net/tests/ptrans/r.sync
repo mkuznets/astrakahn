@@ -1,0 +1,25 @@
+synch __R__ (__in__, __fb__ | __rtr__, __sm__)
+{
+  state int(32) seg_len;
+
+  start {
+    on:
+      __in__.@depth {
+        send (d: depth || l: seg_len) => __sm__;
+        goto wait_feedback;
+      }
+
+      __in__.else {
+        set seg_len = [seg_len + 1];
+        send this => __rtr__;
+      }
+  }
+
+  wait_feedback {
+    on:
+      __fb__ {
+        set seg_len = [0];
+        goto start;
+      }
+  }
+}

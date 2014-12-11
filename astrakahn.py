@@ -4,6 +4,7 @@ import os
 import sys
 import inspect
 import hashlib
+from multiprocessing import cpu_count
 
 import compiler.net as compiler
 
@@ -64,12 +65,15 @@ def get_net():
 
     dump(net, src_hash, os.path.join(path, '%s.rt' % name))
 
+    net.show()
+    print()
+
     return net
 
 
 def start():
     net = get_net()
-    net.run()
+    net.run(nproc=10)
 
 
 def dump(network, hash, output_file=None):

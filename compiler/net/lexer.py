@@ -30,6 +30,7 @@ t_LBRACE        = r'{'
 t_RBRACE        = r'}'
 t_COLON         = r':'
 t_MERGE         = r'~'
+t_ignore_COMMENT = r'\#.*'
 
 keywords_map = {k.lower(): k for k in keywords}
 

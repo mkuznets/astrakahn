@@ -68,7 +68,30 @@ class NetBuilder(ast.NodeVisitor):
                 raise NotImplementedError('¯\_(ツ)_/¯')
 
             elif type == 'sync':
-                obj = self.compile_sync(decl, node)
+
+                # Path of sync source: if it is not provided from net, use
+                #path of net source file.
+                if not decl.path:
+                    sync_path = self.path
+                    sync_file = os.path.join(sync_path, '%s.sync' % decl.name)
+                else:
+                    if decl.path[0] == '/':
+                        sync_path = decl.path
+                    else:
+                        sync_path = os.path.join(self.path, decl.path)
+
+                    sync_file = sync_path
+
+                if not (os.path.isfile(sync_file)
+                        and os.access(sync_file, os.R_OK)):
+                    print(sync_file)
+                    raise ValueError('File for sync `%s\' is not found or '
+                                     'cannot be read.' % decl.name)
+
+                with open(sync_file, 'r') as f:
+                    src_code = f.read()
+
+                obj = self.compile_sync(src_code, decl.macros)
 
             elif type == 'core':
                 obj = self.compile_box(decl, node)
@@ -158,28 +181,9 @@ class NetBuilder(ast.NodeVisitor):
 
         return network
 
-    def compile_sync(self, decl, vertex):
+    def compile_sync(self, src_code, macros):
 
-        # Path of sync source: if it is not provided from net, use path of
-        # net source file.
-        if not decl.path:
-            sync_path = self.path
-        else:
-            if decl.path[0] == '/':
-                sync_path = decl.path
-            else:
-                sync_path = os.path.join(self.path, decl.path)
-
-        sync_file = os.path.join(sync_path, '%s.sync' % decl.name)
-
-        if not (os.path.isfile(sync_file) and os.access(sync_file, os.R_OK)):
-            raise ValueError('File for sync `%s\' is not found or cannot be '
-                             'read.' % decl.name)
-
-        with open(sync_file, 'r') as f:
-            src_code = f.read()
-
-        sync_ast = sync_parse(src_code, decl.macros)
+        sync_ast = sync_parse(src_code, macros)
 
         sb = SyncBuilder()
         obj = sb.traverse(sync_ast)
@@ -237,24 +241,27 @@ class NetBuilder(ast.NodeVisitor):
 
         # Match box specification from docstring.
         spec = str(box.__doc__).strip()
-        m = re.match('([1-9]\d*)(T|I|DO|DU|H)', spec)
+        m = re.match('^([1-9]\d*)(T|T\*|I|DO|DU|H)$', spec)
 
         if m:
             n_out, cat = m.groups()
             n_out = int(n_out)
 
             if cat[0] == 'H':
-                n_in = n_out
-                n_out = n_in
+                n_in = len(vertex.inputs)
+                n_out = len(vertex.outputs)
             else:
                 n_in = 2 if cat[0] == 'D' else 1
 
             inputs = self._gen_ports(n_in, vertex.inputs)
             outputs = self._gen_ports(n_out, vertex.outputs)
 
-            # Assign box class
             if cat == 'T':
                 obj = Transductor(vertex.name, inputs, outputs, box)
+
+            elif cat == 'T*':
+                obj = Transductor(vertex.name, inputs, outputs, box)
+
 
             elif cat == 'I':
                 obj = Inductor(vertex.name, inputs, outputs, box)
@@ -278,6 +285,8 @@ class NetBuilder(ast.NodeVisitor):
         else:
             raise ValueError('Wrong box specification: %s:%s' % (vertex.name,
                                                                  spec))
+    def compile_ptrans(self):
+        pass
 
     def compile_merger(self, inputs, outputs):
 

@@ -5,25 +5,16 @@ from . import parser as net_parser
 from . import ast
 
 
-class NetWiring(ast.NodeVisitor):
+class Stars(ast.NodeVisitor):
 
     def __init__(self):
-        self.exprs = []
-
-    def visit_Net(self, node, children):
-        self.exprs += [children['wiring']]
-
-    def visit_BinaryOp(self, node, children):
-        return (node.op, children['left'], children['right'])
+        pass
 
     def visit_UnaryOp(self, node, children):
-        return (node.op, children['operand'])
+        if node.op == '*':
 
-    def visit_Vertex(self, node, children):
-        return node.name
+            print(node.operand)
 
-    def generic_visit(self, node, _):
-        pass
 
 
 def parse(code):

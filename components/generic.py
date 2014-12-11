@@ -14,9 +14,9 @@ class NodeVisitor(object):
         children = {}
 
         if isinstance(node, Net):
-            for c_name, c in node.nodes.items():
+            for id, c in node.nodes.items():
                 outcome = self.traverse(c)
-                children[c_name] = outcome
+                children[id] = outcome
 
         method = 'visit_' + node.__class__.__name__
         visitor = getattr(self, method, self.generic_visit)
@@ -67,7 +67,7 @@ class Node:
         buf.write('\n')
 
         if getattr(self, 'nodes', None):
-            for name, node in self.nodes.items():
+            for id, node in self.nodes.items():
                 node.show(buf, offset=offset+2)
 
 
@@ -75,7 +75,7 @@ class Net(Node):
     def __init__(self, name, inputs, outputs, nodes):
         super(Net, self).__init__(name, inputs, outputs)
 
-        self.nodes = {n.name: n for n in nodes}
+        self.nodes = {n.id: n for n in nodes}
 
 
 class Vertex(Node):
@@ -175,6 +175,16 @@ class Vertex(Node):
         return True
 
     #--------------------------------------------------------------------------
+
+    def send_dispatch(self, dispatch):
+
+        for port_id, msgs in dispatch.items():
+            port = self.outputs[port_id]
+
+            for m in msgs:
+                port['to'].put(m)
+
+            self.departures.append(port['dst'])
 
     def send_out(self, mapping):
 

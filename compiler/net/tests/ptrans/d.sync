@@ -1,0 +1,21 @@
+synch __D__ (__rtr__ | __t1__, __t2__, __t3__, __t4__)
+{
+  start {
+    on:
+      __rtr__ {
+        send (this || t1: [1]) => __t1__;
+      }
+
+      __rtr__ {
+        send (this || t2: [1]) => __t2__;
+      }
+
+      __rtr__ {
+        send (this || t3: [1]) => __t3__;
+      }
+
+      __rtr__ {
+        send (this || t4: [1]) => __t4__;
+      }
+  }
+}

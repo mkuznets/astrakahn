@@ -70,6 +70,10 @@ class Network:
         self.ready = set(v for v in self.vc
                          if self.vc[v].is_ready() == (True, True))
 
+        if not self.ready:
+            print('No ready components.')
+            return -1
+
         while True:
             vertex_id = self.ready.pop()
             vertex = self.vc[vertex_id]
@@ -98,6 +102,16 @@ class Network:
 
                 break
 
+            #------------------------------------------------------------------
+            # TODO: fix repetition.
+            # Test potentially ready vertices.
+            for vid in self.potential:
+                vertex = self.vc[vid]
+                if (vertex.is_ready() == (True, True)) and not vertex.busy:
+                    self.ready.add(vid)
+            self.potential.clear()
+            #------------------------------------------------------------------
+
             # Check for responses from processing pool.
             while True:
                 try:
@@ -118,12 +132,14 @@ class Network:
 
                 self._impact(vertex)
 
-            # Test potentially ready vertices.
-            for vid in self.potential:
-                vertex = self.vc[vid]
-                if (vertex.is_ready() == (True, True)) and not vertex.busy:
-                    self.ready.add(vid)
-            self.potential.clear()
+                #--------------------------------------------------------------
+                # Test potentially ready vertices.
+                for vid in self.potential:
+                    vertex = self.vc[vid]
+                    if (vertex.is_ready() == (True, True)) and not vertex.busy:
+                        self.ready.add(vid)
+                self.potential.clear()
+                #--------------------------------------------------------------
 
         self.close_pool()
 

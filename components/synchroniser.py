@@ -122,7 +122,7 @@ class Sync(generic.Vertex):
 
         # 2. Send
         dispatch = transition.send()
-        self.send_out(dispatch)
+        self.send_dispatch(dispatch)
 
         # 3. Goto
         goto_states = transition.goto()
@@ -331,7 +331,8 @@ class Transition:
                 return False
 
             depth = self.condition[1]
-            self.scope[depth] = msg.n
+            self.local_aliases[depth] = msg.n
+            self.scope.add_from(self.local_aliases)
 
             return True
 
@@ -423,7 +424,7 @@ class Transition:
             elif mtype == 'MsgNil':
                 outcome = comm.NilMessage()
 
-            dispatch.update({port: outcome})
+            dispatch[port] = dispatch.get(port, []) + [outcome]
 
         return dispatch
 
@@ -596,7 +597,7 @@ class StateInt(Variable):
         self.value = 0
 
     def set(self, value):
-        if value >= 0 and value <= 2 ** self.width:
+        if value >= (- 2 ** (self.width - 1)) and value <= (2 ** (self.width - 1) - 1):
             self.value = value
         else:
             raise RuntimeError('Value is out of range.')
