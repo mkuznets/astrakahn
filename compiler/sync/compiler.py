@@ -2,6 +2,7 @@
 
 import os
 import sys
+import imp
 
 from . import lexer as sync_lexer
 from . import parser as sync_parser
@@ -28,6 +29,7 @@ def macro_subst(code, macros):
 
 
 def parse(code, macros={}):
+    global sync_lexer
 
     if macros:
         code = macro_subst(code, macros)
@@ -38,5 +40,7 @@ def parse(code, macros={}):
     parser = sync_parser.build()
 
     sync_ast = parser.parse(code, lexer=lexer)
+
+    sync_lexer.enable_ws()
 
     return sync_ast

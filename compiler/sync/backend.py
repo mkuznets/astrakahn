@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
-
-from components import synchroniser as sync_runtime
+import components
 from . import ast
 
 
@@ -17,10 +16,10 @@ class SyncBuilder(ast.NodeVisitor):
 
     def visit_Sync(self, node, children):
 
-        scope = sync_runtime.Scope(children['decls'] + self.consts)
+        scope = components.Scope(children['decls'] + self.consts)
 
         del children['decls']
-        return sync_runtime.Sync(name=node.name, scope=scope, **children)
+        return components.Sync(name=node.name, scope=scope, **children)
 
     #--------------------------------------------------
 
@@ -50,7 +49,7 @@ class SyncBuilder(ast.NodeVisitor):
         return children['decls']
 
     def visit_StoreVar(self, node, _):
-        return sync_runtime.StoreVar(node.name)
+        return components.StoreVar(node.name)
 
     def visit_StateVar(self, node, children):
         type, arg = children['type']
@@ -58,9 +57,9 @@ class SyncBuilder(ast.NodeVisitor):
         assert(type == 'int' or type == 'enum')
 
         if type == 'int':
-            return sync_runtime.StateInt(node.name, arg)
+            return components.StateInt(node.name, arg)
         elif type == 'enum':
-            return sync_runtime.StateEnum(node.name, arg)
+            return components.StateEnum(node.name, arg)
 
     def visit_IntType(self, node, _):
         return ('int', node.size)
@@ -69,7 +68,7 @@ class SyncBuilder(ast.NodeVisitor):
 
         # Named constants from enum type.
         for i, label in enumerate(children['labels']):
-            c = sync_runtime.Const(label, i)
+            c = components.Const(label, i)
             self.consts.append(c)
 
         return ('enum', children['labels'])
@@ -87,9 +86,9 @@ class SyncBuilder(ast.NodeVisitor):
                 trans.order = i
                 byport[trans.port] = byport.get(trans.port, []) + [trans]
 
-        handlers = [sync_runtime.PortHandler(p, t) for p, t in byport.items()]
+        handlers = [components.PortHandler(p, t) for p, t in byport.items()]
 
-        return sync_runtime.State(node.name, handlers)
+        return components.State(node.name, handlers)
 
     def visit_TransOrder(self, node, children):
         return children['trans_stmt']
@@ -97,7 +96,7 @@ class SyncBuilder(ast.NodeVisitor):
     def visit_Trans(self, node, children):
         pid = self.input_index[node.port]
 
-        return sync_runtime.Transition(pid, children['condition'],
+        return components.Transition(pid, children['condition'],
                                        children['guard'], children['actions'])
 
     #--------------------------------------------------

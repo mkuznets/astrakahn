@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
-from components import *
+import components
 from network import Network
 from compiler.sync import parse as sync_parse
 from compiler.sync.backend import SyncBuilder
 from . import ast
+import visitors
 
 import re
 import os.path
@@ -12,11 +13,11 @@ import os.path
 
 class NetBuilder(ast.NodeVisitor):
 
-    def __init__(self, cores, path):
+    def __init__(self, cores, path, node_id=0):
         self.cores = cores
         self.scopes = []
 
-        self.node_id = 0
+        self.node_id = node_id
 
         self.path = path
         self.network = None
@@ -84,7 +85,6 @@ class NetBuilder(ast.NodeVisitor):
 
                 if not (os.path.isfile(sync_file)
                         and os.access(sync_file, os.R_OK)):
-                    print(sync_file)
                     raise ValueError('File for sync `%s\' is not found or '
                                      'cannot be read.' % decl.name)
 
@@ -149,7 +149,37 @@ class NetBuilder(ast.NodeVisitor):
         inputs, outputs = self._global_ports(operand)
 
         if node.op == '*':
-            pass
+            if len(operand) != 1:
+                raise ValueError('*-operator can be applied to net only.')
+
+            net = operand.pop()
+
+            if type(net) is not components.Net:
+                raise ValueError('*-operator can be applied to net only.')
+
+            if len(inputs) != 1 or len(outputs) != 2:
+                raise ValueError('Stage layout: wrong number of inpus or outputs')
+
+            stage_port = list(inputs)[0]
+
+            if (stage_port not in outputs) or ('__output__' not in outputs):
+                raise ValueError('Stage layout: wrong channel naming.')
+
+            mrgr = components.Merger('__star_output__', ['__exit__'], [stage_port])
+            mrgr.id = self._set_id()
+
+            star_net = components.StarNet('__' + net.name + '_fps__',
+                                          [stage_port], [stage_port],
+                                          [net, mrgr])
+            star_net.id = self._set_id()
+
+            star_net.stages.append(net)
+            star_net.stage_port = stage_port
+            star_net.merger = mrgr
+
+            star_net.wire_stages()
+
+            operand = set((star_net,))
 
         elif node.op == '\\':
 
@@ -209,7 +239,16 @@ class NetBuilder(ast.NodeVisitor):
         inputs = self.traverse(net.inputs)
         outputs = self.traverse(net.outputs)
 
-        obj = Net(net.name, inputs, outputs, nodes)
+        obj = components.Net(net.name, inputs, outputs, nodes)
+        obj.id = self._set_id()
+
+        cv = visitors.CoreVisitor()
+        cv.traverse(obj)
+
+        obj.cores = cv.cores
+        obj.path = self.path
+
+        obj.ast = net
 
         nodes_inputs, nodes_outputs = self._global_ports(nodes)
 
@@ -231,10 +270,11 @@ class NetBuilder(ast.NodeVisitor):
             assert(len(ports) == 1)
             obj.outputs[i] = ports[0][1]
 
+        obj.fix_port_id()
+
         # Pop the scope from stack
         self.scopes.pop()
 
-        obj.id = self._set_id()
         return obj
 
     def compile_box(self, box, vertex):
@@ -257,29 +297,30 @@ class NetBuilder(ast.NodeVisitor):
             outputs = self._gen_ports(n_out, vertex.outputs)
 
             if cat == 'T':
-                obj = Transductor(vertex.name, inputs, outputs, box)
+                obj = components.Transductor(vertex.name, inputs, outputs, box)
 
             elif cat == 'T*':
-                obj = Transductor(vertex.name, inputs, outputs, box)
+                obj = components.Transductor(vertex.name, inputs, outputs, box)
 
 
             elif cat == 'I':
-                obj = Inductor(vertex.name, inputs, outputs, box)
+                obj = components.Inductor(vertex.name, inputs, outputs, box)
 
             elif cat[0] == 'D':
                 ordered = True if cat[1] != 'U' else False
                 segmentable = True if cat[1] == 'S' or cat[1] == 'U' else False
 
-                obj = DyadicReductor(vertex.name, inputs, outputs, box,
+                obj = components.DyadicReductor(vertex.name, inputs, outputs, box,
                                      ordered, segmentable)
 
             elif cat == 'H':
-                obj = Executor(vertex.name, inputs, outputs, box)
+                obj = components.Executor(vertex.name, inputs, outputs, box)
 
             else:
                 raise ValueError('Wrong box category: %s:%s' % (vertex.name,
                                                                 cat))
             obj.id = self._set_id()
+            obj.ast = vertex
             return obj
 
         else:
@@ -298,7 +339,7 @@ class NetBuilder(ast.NodeVisitor):
             merger_name = '%s_to_%s' % ('-'.join(set(inputs)),
                                         '-'.join(set(outputs)))
 
-        obj = Merger(merger_name, inputs, outputs)
+        obj = components.Merger(merger_name, inputs, outputs)
         obj.id = self._set_id()
 
         return obj
@@ -311,7 +352,7 @@ class NetBuilder(ast.NodeVisitor):
         return t
 
     def _gen_ports(self, n, rename):
-        return [(rename.get(i, '_%s' % i)) for i in range(n)]
+        return [(rename.get(i, '_%s' % (i+1))) for i in range(n)]
 
     def _global_ports(self, vertices):
         inputs = {}
@@ -366,7 +407,7 @@ class NetBuilder(ast.NodeVisitor):
         dst_id, dst_port = pb
 
         src_port['to'] = dst_port['queue']
-        src_port['dst'] = (dst_id, dst_port['id'])
-        dst_port['src'] = (src_id, src_port['id'])
+        src_port['dst'] = (dst_port['vid'], dst_port['id'])
+        dst_port['src'] = (src_port['vid'], src_port['id'])
 
     #--------------------------------------------------------------------------

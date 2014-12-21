@@ -1,0 +1,31 @@
+synch fps_begin (STAGE_OUT, __bypass__, __output__ | FPS_PORT, __output__)
+{
+  start {
+    on:
+      STAGE_OUT.(rfp) & [rfp] {
+        send this => FPS_PORT;
+        goto bypass;
+      }
+
+      __output__.(rfp) & [rfp] {
+        send this => __output__;
+        goto bypass;
+      }
+
+    elseon:
+      STAGE_OUT {
+        send this => FPS_PORT;
+      }
+
+      __output__ {
+        send this => __output__;
+      }
+  }
+
+  bypass {
+    on:
+      __bypass__ {
+        send this => FPS_PORT;
+      }
+  }
+}

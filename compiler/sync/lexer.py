@@ -100,6 +100,26 @@ def disable_ws():
 
         globals()['t_NEWLINE'] = nl
 
+def enable_ws():
+    global tokens
+
+    def nl(t):
+        r'\n'
+        t.lexer.lineno += t.value.count("\n")
+        return t
+
+    def sp(t):
+        r'[ \t\v\f]+'
+        return t
+
+    tokens.append('SPACES')
+    tokens.append('NEWLINE')
+
+    del globals()['t_ignore']
+
+    globals()['t_NEWLINE'] = nl
+    globals()['t_SPACES'] = sp
+
 
 import ply.lex as lex
 

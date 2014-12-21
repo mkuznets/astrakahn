@@ -12,9 +12,11 @@ def __output__(stream):
     '''
     1H
     '''
+    import time
+
     for entry in stream:
         pid, pname, msg = entry
-        print('O: %s: %s' % (pname, msg))
+        print(time.time(), 'O: %s: %s' % (pname, msg))
 
 def get_caller_module():
 
@@ -36,11 +38,11 @@ def get_net():
 
     src_hash = hashlib.md5(open(filename, 'rb').read()).hexdigest()
 
-    #if (os.path.isfile(rt_file) and os.access(rt_file, os.R_OK)):
-    #    obj = load(input_file=rt_file)
+    if (os.path.isfile(rt_file) and os.access(rt_file, os.R_OK)):
+        obj = load(input_file=rt_file)
 
-    #    if type(obj) == tuple and len(obj) == 2 and obj[1] == src_hash:
-    #        return obj[0]
+        if type(obj) == tuple and len(obj) == 2 and obj[1] == src_hash:
+            return obj[0]
 
     cores = {n[2:]: ('core', g)
              for n, g in caller.items() if inspect.isfunction(g) and n.startswith('c_')}
@@ -63,7 +65,7 @@ def get_net():
     if '__input__' in caller and isinstance(caller['__input__'], dict):
         net.init_input(caller['__input__'])
 
-    dump(net, src_hash, os.path.join(path, '%s.rt' % name))
+    #dump(net, src_hash, os.path.join(path, '%s.rt' % name))
 
     net.show()
     print()
@@ -83,11 +85,11 @@ def dump(network, hash, output_file=None):
     obj = (network, hash)
 
     # Dump core functions to allow the Network object to be serialized.
-    #for n in network.network.nodes():
-    #    obj = network.node(n)['obj']
-    #    if hasattr(obj, 'core') and obj.core is not None:
-    #        name = obj.core.__name__
-    #        obj.core = (name, marshal.dumps(obj.core.__code__))
+    for n in network.network.nodes():
+        obj = network.node(n)['obj']
+        if hasattr(obj, 'core') and obj.core is not None:
+            name = obj.core.__name__
+            obj.core = (name, marshal.dumps(obj.core.__code__))
 
     if output_file is None:
         return dill.dumps(obj)

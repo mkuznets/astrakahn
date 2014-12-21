@@ -3,24 +3,11 @@
 import os
 import sys
 
-import components
 import pool
 import time
-import communication as comm
-
-from compiler.net import ast
+import visitors
 
 from queue import Empty as Empty
-
-
-class VerticesVisitor(components.NodeVisitor):
-
-    def __init__(self):
-        self.vertices = {}
-
-    def generic_visit(self, node, children):
-        if isinstance(node, components.Vertex):
-            self.vertices.update({node.id: node})
 
 
 class Network:
@@ -31,7 +18,7 @@ class Network:
         self.node_id = node_id
 
         # Cache of vertices in order to avoid network traversal.
-        gv = VerticesVisitor()
+        gv = visitors.ExecutableVisitor()
         gv.traverse(self.network)
         self.vc = gv.vertices
 
@@ -42,6 +29,18 @@ class Network:
 
         self.ready = set()
         self.potential = set()
+
+    def add_node(self, node):
+
+        upd = visitors.ExecutableVisitor()
+        upd.traverse(node)
+
+        self.vc.update(upd.vertices)
+
+    def set_id(self):
+        t = self.node_id
+        self.node_id += 1
+        return t
 
     def show(self):
         self.network.show()
@@ -86,11 +85,55 @@ class Network:
                 #    box function to apply.
                 args = vertex.fetch()
 
+                #if hasattr(vertex, 'state'):
+                #    print(vertex.id, vertex.name, '--', vertex.state.name)
+
                 if args is None:
                     # 3.1 Input message were handled in fetch(), box execution
                     #     is not required.
                     self._impact(vertex)
                     break
+
+                #--------------------------------------------------------------
+
+                if type(args) == dict:
+
+                    # New stage.
+                    if 1 in args:
+
+                        import compiler.net.backend as compiler
+
+                        stage = vertex.current_stage()
+
+                        # Compile next stage.
+                        nb = compiler.NetBuilder(stage.cores, stage.path, self.node_id)
+                        obj = nb.compile_net(stage.ast)
+
+                        self.node_id = nb.node_id
+
+                        vertex.stages.append(obj)
+                        vertex.wire_stages()
+
+                        self.add_node(obj)
+                        vertex.nodes[obj.id] = obj
+
+                        self.network.show()
+                        print()
+
+                        for msg in args[1]:
+                            obj.inputs[0]['queue'].put(msg)
+
+                        self.potential.add(obj.inputs[0]['vid'])
+
+                        break
+
+                    if 2 in args:
+                        for msg in args[2]:
+                            vertex.merger.inputs[0]['queue'].put(msg)
+                        self.potential.add(vertex.merger.id)
+                        break
+
+                #--------------------------------------------------------------
 
                 # 4. Assemble all the data needed for the task to send in
                 #    the processing pool.
@@ -127,7 +170,7 @@ class Network:
 
                 # Commit the result of computation, e.g. send it to destination
                 # vertices.
-                sent_to = vertex.commit(response)
+                vertex.commit(response)
                 vertex.busy = False
 
                 self._impact(vertex)

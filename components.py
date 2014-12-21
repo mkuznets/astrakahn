@@ -1,10 +1,525 @@
 #!/usr/bin/env python3
 
+import sys
 import communication as comm
-from . import generic
 
 
-class Sync(generic.Vertex):
+class Node:
+    def __init__(self, name, inputs, outputs):
+        self._id = None
+        self.name = name
+
+        self.ast = None
+        self.cores = None
+        self.path = None
+
+        # Ports of the node itselt
+        self.inputs = [{'id': i, 'vid': self.id, 'name': n, 'queue': None, 'src': None}
+                       for i, n in enumerate(inputs)]
+        self.outputs = [{'id': i, 'vid': self.id, 'name': n, 'to': None, 'dst': None}
+                        for i, n in enumerate(outputs)]
+
+    # DIRTY FUCKING HACK
+    def fix_port_id(self):
+        for i, p in enumerate(self.inputs):
+            p['id'] = i
+        for i, p in enumerate(self.outputs):
+            p['id'] = i
+
+    @property
+    def id(self):
+        return self._id
+
+    # DIRTY FUCKING HACK
+    @id.setter
+    def id(self, value):
+        self._id = value
+        for i, p in enumerate(self.inputs):
+            p['vid'] = value
+        for i, p in enumerate(self.outputs):
+            p['vid'] = value
+
+
+    @property
+    def n_inputs(self):
+        return len(self.inputs)
+
+    @property
+    def n_outputs(self):
+        return len(self.outputs)
+
+    def free_ports(self):
+        inputs = {}
+        outputs = {}
+
+        for p in self.inputs:
+            name = p['name']
+            if p['src'] is None:
+                inputs[name] = inputs.get(name, []) + [(self.id, p)]
+
+        for p in self.outputs:
+            name = p['name']
+            if p['dst'] is None:
+                outputs[name] = outputs.get(name, []) + [(self.id, p)]
+
+        return (inputs, outputs)
+
+
+    def show(self, buf=sys.stdout, offset=0):
+        lead = ' ' * offset
+        buf.write(lead + str(self.id) + '. ' + self.__class__.__name__+ ' <' + self.name + "> ")
+        buf.write('(' + ', '.join(p['name'] + (str(p['src']) if p['src'] else '') for p in self.inputs) + ' | ')
+        buf.write(', '.join(p['name'] + (str(p['dst']) if p['dst'] else '') for p in self.outputs) + ')')
+        buf.write('\n')
+
+        if getattr(self, 'nodes', None):
+            for id, node in self.nodes.items():
+                node.show(buf, offset=offset+2)
+
+    def add_wire_name(self, src_port_name, dst_vertex, dst_port_name):
+
+        src_port = next(i for i, p in enumerate(self.outputs)
+                        if p['name'] == src_port_name)
+        dst_port = next(i for i, p in enumerate(dst_vertex.inputs)
+                        if p['name'] == dst_port_name)
+
+        self.add_wire(src_port, dst_vertex, dst_port)
+
+    def add_wire(self, src_port, dst_vertex, dst_port):
+
+        # Set port connection.
+        self.outputs[src_port]['to'] = dst_vertex.inputs[dst_port]['queue']
+
+        dst_vid = dst_vertex.inputs[dst_port]['vid']
+        dst_vid = dst_vid if dst_vid else dst_vertex.id
+
+        # Set source and destination ids.
+        self.outputs[src_port]['dst'] = (dst_vid, dst_port)
+        dst_vertex.inputs[dst_port]['src'] = (self.id, src_port)
+
+
+class Net(Node):
+
+    def __init__(self, name, inputs, outputs, nodes):
+        super(Net, self).__init__(name, inputs, outputs)
+
+        self.nodes = {n.id: n for n in nodes}
+
+
+class Vertex(Node):
+
+    def __init__(self, name, inputs, outputs):
+        super(Vertex, self).__init__(name, inputs, outputs)
+
+        # Initialize input queues.
+        for p in self.inputs:
+            p['queue'] = comm.Channel()
+
+        # Flag indicating that the box is processing another message.
+        self.busy = False
+
+        self.departures = []
+
+    #--------------------------------------------------------------------------
+
+    def is_ready(self):
+
+        '''
+        Check if the condition on channels are sufficient for the vertex to
+        start.
+
+        NOTE: The very implementation applies for common types of vertices that
+        need (1) at least one message on one of the inputs (2) all outputs to
+        be available.
+        '''
+        # Test if there's an input message.
+        input_ready = self.input_ready()
+
+        # Test availability of outputs.
+        output_ready = self.output_ready()
+
+        return (input_ready, output_ready)
+
+    # TODO: the method is run on the assumption that is_ready() returned True,
+    # this creates undesirable logical dependence between these methods.
+    def fetch(self):
+        '''
+        Fetch required number of message(s) from input queue(s) and return the
+        data in the form suitable for processing pool.
+        '''
+        raise NotImplemented('The fetch method is not defined for the '
+                             'abstract vertex.')
+
+    def commit(self, response):
+        '''
+        Handle the result received from processing pool. Return the number of
+        output messages sent.
+        '''
+        raise NotImplemented('The commit method is not defined for the '
+                             'abstract vertex.')
+
+    #--------------------------------------------------------------------------
+
+    def input_ready(self, rng=None, any_channel=True):
+        '''
+        Returns True if there's a msg in at least one channel from the range.
+        '''
+        if rng is None:
+            rng = range(self.n_inputs)
+
+        input_ready = True
+
+        for port_id in rng:
+            queue = self.inputs[port_id]['queue']
+
+            ready = not queue.is_empty()
+
+            if ready and any_channel:
+                return True
+            else:
+                input_ready &= ready
+
+        return input_ready
+
+    def inputs_available(self):
+        port_list = []
+
+        for i, p in enumerate(self.inputs):
+            if not p['queue'].is_empty():
+                port_list.append(i)
+
+        return port_list
+
+    def output_ready(self, rng=None, space_needed=1):
+        if rng is None:
+            rng = range(self.n_outputs)
+
+        for port_id in rng:
+            to_queue = self.outputs[port_id]['to']
+
+            if to_queue is None or not to_queue.is_space_for(space_needed):
+                return False
+
+        return True
+
+    #--------------------------------------------------------------------------
+
+    def send_dispatch(self, dispatch):
+
+        for port_id, msgs in dispatch.items():
+            port = self.outputs[port_id]
+
+            for m in msgs:
+                port['to'].put(m)
+
+            self.departures.append(port['dst'])
+
+    def send_out(self, mapping):
+
+        for port_id, msg in mapping.items():
+            port = self.outputs[port_id]
+
+            port['to'].put(msg)
+            self.departures.append(port['dst'])
+
+    def send_to_range(self, msg, rng):
+        mapping = {i: msg for i in rng}
+        self.send_out(mapping)
+
+    def send_to_all(self, msg):
+        rng = range(self.n_outputs)
+        self.send_to_range(msg, rng)
+
+    def put_back(self, port_id, msg):
+        self.inputs[port_id]['queue'].put_back(msg)
+
+    #--------------------------------------------------------------------------
+
+    def get(self, port_id):
+        if port_id < 0 or port_id >= self.n_inputs:
+            raise IndexError('Wrong number of input port.')
+
+        port = self.inputs[port_id]
+
+        m = port['queue'].get()
+
+        return m
+
+    def put(self, port_id, msg):
+        self.inputs[port_id]['queue'].put(msg)
+
+    #--------------------------------------------------------------------------
+
+
+class StarNet(Vertex):
+
+    def __init__(self, name, inputs, outputs, nodes):
+
+        inputs += ['__result__', '__output__']
+        super(StarNet, self).__init__(name, inputs, outputs)
+
+        self.nodes = {n.id: n for n in nodes}
+
+        self.stages = []
+        self.stage_port = None
+        self.merger = None
+
+        for p in self.inputs[-2:]:
+            p['queue'] = comm.Channel()
+
+    def current_stage(self):
+        if not self.stages:
+            return None
+        else:
+            return self.stages[-1]
+
+
+    def is_ready(self):
+        if self.input_ready((1,2)):
+            return (True, True)
+        else:
+            return (False, False)
+
+    def fetch(self):
+
+        import compiler.net.backend as compiler
+
+        ready = self.inputs_available()
+
+        result = {}
+
+        for p in ready:
+
+            msgs = []
+
+            while self.input_ready(rng=(p,)):
+                msgs.append(self.get(p))
+
+            result[p] = msgs
+
+        return result
+
+    def wire_stages(self):
+        stage = self.current_stage()
+
+        if len(self.stages) == 1:
+
+            # Mount main StarNet ports to the first stage (input) and to the
+            # merger (output)
+            self.inputs[0] = stage.inputs[0]
+            self.outputs[0] = self.merger.outputs[0]
+
+        # Mount result and output ports of the stage back to the StarNet
+        stage.add_wire_name(self.stage_port, self, '__result__')
+        stage.add_wire_name('__output__', self, '__output__')
+
+        if len(self.stages) > 1:
+            previous_stage = self.stages[-2]
+            previous_stage.add_wire_name(self.stage_port, stage, self.stage_port)
+
+
+
+class Box(Vertex):
+    core = None
+    pass
+
+
+#------------------------------------------------------------------------------
+
+
+class Transductor(Box):
+
+    def __init__(self, name, inputs, outputs, core):
+        super(Transductor, self).__init__(name, inputs, outputs)
+        self.core = core
+
+    def fetch(self):
+
+        m = self.get(0)
+
+        if m.is_segmark():
+            # Special behaviour: sengmentation marks are sent through.
+            self.send_to_all(m)
+            return None
+
+        else:
+            return [m.content]
+
+    def commit(self, response):
+
+        if response.action == 'send':
+            # Send output messages.
+            self.send_out(response.out_mapping)
+        else:
+            print(response.action, 'is not implemented.')
+
+
+class Printer(Transductor):
+    '''
+    Temporary class of vertex, just for debugging
+    '''
+
+    def fetch(self):
+        m = self.get(0)
+        return [m.content]
+
+    def is_ready(self):
+
+        # Check if there's an input message.
+        input_ready = self.input_ready()
+        return (input_ready, True)
+
+
+class Executor(Box):
+    '''
+    Temporary class of vertex, just for debugging
+    '''
+
+    def __init__(self, name, inputs, outputs, core):
+        super(Executor, self).__init__(name, inputs, outputs)
+        self.core = core
+
+    def fetch(self):
+        inputs = self.inputs_available()
+        m = [(pid, self.inputs[pid]['name'], self.get(pid)) for pid in inputs]
+        return [m]
+
+    def is_ready(self):
+
+        # Check if there's an input message.
+        input_ready = self.input_ready()
+        return (input_ready, True)
+
+    def commit(self, response):
+        pass
+
+
+class Inductor(Box):
+
+    def __init__(self, name, inputs, outputs, core):
+        super(Inductor, self).__init__(name, inputs, outputs)
+        self.core = core
+
+    def fetch(self):
+        m = self.get(0)
+
+        if m.is_segmark():
+            # Special behaviour for segmentation marks.
+            m.plus()
+            self.send_to_all(m)
+            return None
+
+        else:
+            return [m.content]
+
+    def commit(self, response):
+
+        if response.action == 'continue':
+
+            cont = response.aux_data
+
+            # Put the continuation back to the input queue
+            self.put_back(0, cont)
+
+            self.send_out(response.out_mapping)
+
+        elif response.action == 'terminate':
+            self.send_out(response.out_mapping)
+
+        else:
+            print(response.action, 'is not implemented.')
+
+
+class DyadicReductor(Box):
+
+    def __init__(self, name, inputs, outputs, core, ordered, segmented):
+        super(DyadicReductor, self).__init__(name, inputs, outputs)
+        self.core = core
+
+        self.ordered = ordered
+        self.segmented = segmented
+
+    def is_ready(self):
+
+        ## Test input availability.
+        #
+
+        # Reduction start: 2 messages from both channel are needed.
+        input_ready = self.input_ready(any_channel=False)
+
+        ## Test output availability.
+        #
+
+        output_ready = self.output_ready(range(1, self.n_outputs))
+        # Test the 1st output separately since it must have enough space
+        # for segmentation mark.
+        output_ready &= self.output_ready((0,), space_needed=2)
+
+        return (input_ready, output_ready)
+
+    def fetch(self):
+
+        # First reduction operand:
+        term_a = self.get(0)
+
+        if term_a.is_segmark():
+            # Special behaviour for segmentation marks.
+            term_a.plus()
+            self.send_to_range(term_a, range(1, self.n_outputs))
+            return None
+
+        # Second reduction operand
+        term_b = self.get(1)
+
+        if term_b.is_segmark():
+            # Special behaviour for segmentation marks.
+            self.send_out({0: term_a})
+
+            if term_b.n != 1:
+                if term_b.n > 1:
+                    term_b.minus()
+                self.send_out({0: term_b})
+
+            return None
+
+        # Input messages are not segmarks: pass them to coordinator.
+        return [term_a.content, term_b.content]
+
+    def commit(self, response):
+
+        if response.action == 'partial':
+            # First output channel cannot be the destination of partial result.
+            assert(0 not in response.out_mapping)
+            self.send_out(response.out_mapping)
+
+            # Put partial reduction result to the first input channel for
+            # further reduction.
+            self.put_back(0, response.aux_data)
+
+        else:
+            print(response.action, 'is not implemented.')
+
+
+class Merger(Box):
+
+    def __init__(self, name, inputs, outputs, core=None):
+        super(Merger, self).__init__(name, inputs, outputs)
+
+    def fetch(self):
+        for i in range(self.n_inputs):
+            try:
+                m = self.get(i)
+                self.send_to_all(m)
+
+            except comm.Empty:
+                continue
+        return None
+
+
+#------------------------------------------------------------------------------
+
+
+class Sync(Vertex):
 
     def __init__(self, name, inputs, outputs, scope, states):
 
@@ -104,7 +619,11 @@ class Sync(generic.Vertex):
         # Increment usage counter on the chosen handler.
         self.port_handler.hit()
 
+        old_st = self.state.name
+
         self.run()
+
+        print(self.id, old_st, '->', self.state.name)
 
         return None
 
@@ -122,6 +641,7 @@ class Sync(generic.Vertex):
 
         # 2. Send
         dispatch = transition.send()
+        #print('D', self.id, dispatch)
         self.send_dispatch(dispatch)
 
         # 3. Goto
@@ -652,3 +1172,4 @@ class StoreVar(Variable):
 
     def __repr__(self):
         return 'StoreVar({})'.format(self.name)
+

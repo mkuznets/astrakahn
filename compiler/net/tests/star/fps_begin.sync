@@ -1,0 +1,40 @@
+synch fps_end (FPS_PORT | STAGE_IN, __bypass__, __output__)
+{
+  start {
+    on:
+      FPS_PORT.(ffp, rfp) & [ffp && !rfp] {
+        send this => __output__;
+      }
+
+      FPS_PORT.(ffp, rfp) & [ffp && rfp] {
+        send this => __output__;
+        goto bypass;
+      }
+
+      FPS_PORT.(ffp, rfp) & [!ffp && rfp] {
+        send this => STAGE_IN;
+        goto bypass;
+      }
+
+    elseon:
+      FPS_PORT.(ffp) & [ffp] {
+        send this => __output__;
+      }
+
+      FPS_PORT.(rfp) & [rfp] {
+        send this => STAGE_IN;
+        goto bypass;
+      }
+
+      FPS_PORT.else {
+        send this => STAGE_IN;
+      }
+  }
+
+  bypass {
+    on:
+      FPS_PORT {
+        send this => __bypass__;
+      }
+  }
+}
