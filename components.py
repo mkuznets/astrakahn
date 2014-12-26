@@ -160,7 +160,7 @@ class Vertex(Node):
 
     #--------------------------------------------------------------------------
 
-    def input_ready(self, rng=None, any_channel=True):
+    def input_ready(self, rng=None, any_channel=True, nmsg=1):
         '''
         Returns True if there's a msg in at least one channel from the range.
         '''
@@ -172,7 +172,7 @@ class Vertex(Node):
         for port_id in rng:
             queue = self.inputs[port_id]['queue']
 
-            ready = not queue.is_empty()
+            ready = queue.size() >= nmsg
 
             if ready and any_channel:
                 return True
@@ -479,6 +479,92 @@ class DyadicReductor(Box):
                 if term_b.n > 1:
                     term_b.minus()
                 self.send_out({0: term_b})
+
+            return None
+
+        # Input messages are not segmarks: pass them to coordinator.
+        return [term_a.content, term_b.content]
+
+    def commit(self, response):
+
+        if response.action == 'partial':
+            # First output channel cannot be the destination of partial result.
+            assert(0 not in response.out_mapping)
+            self.send_out(response.out_mapping)
+
+            # Put partial reduction result to the first input channel for
+            # further reduction.
+            self.put_back(0, response.aux_data)
+
+        else:
+            print(response.action, 'is not implemented.')
+
+
+class MonadicReductor(Box):
+
+    def __init__(self, name, inputs, outputs, core, ordered, segmented):
+        super(MonadicReductor, self).__init__(name, inputs, outputs)
+        self.core = core
+
+        self.ordered = ordered
+        self.segmented = segmented
+
+    def is_ready(self):
+
+        ## Test input availability.
+        #
+
+        # Reduction start: 2 messages from the input channel are needed.
+        input_ready = self.input_ready(nmsg=2)
+
+        ## Test output availability.
+        #
+
+        output_ready = self.output_ready(range(1, self.n_outputs))
+        # Test the 1st output separately since it must have enough space
+        # for segmentation mark.
+        output_ready &= self.output_ready((0,), space_needed=2)
+
+        return (input_ready, output_ready)
+
+    def fetch(self):
+
+        # First reduction operand:
+        term_a = self.get(0)
+
+        if term_a.is_segmark():
+            # Special behaviour for segmentation marks.
+
+            sm_b = comm.SegmentationMark(term_a.n)
+            sm_b.plus()
+            self.send_to_range(sm_b, range(1, self.n_outputs))
+
+            if term_a.n != 1:
+                sm_a = comm.SegmentationMark(term_a.n)
+                if term_a.n > 1:
+                    sm_a.minus()
+                self.send_to_range(sm_a, (0,))
+
+            return None
+
+        # Second reduction operand
+        term_b = self.get(0)
+
+        if term_b.is_segmark():
+            # Special behaviour for segmentation marks.
+
+            # Partial result becomes final.
+            self.send_out({0: term_a})
+
+            sm_b = comm.SegmentationMark(term_b.n)
+            sm_b.plus()
+            self.send_to_range(sm_b, range(1, self.n_outputs))
+
+            if term_b.n != 1:
+                sm_a = comm.SegmentationMark(term_b.n)
+                if term_b.n > 1:
+                    sm_a.minus()
+                self.send_to_range(sm_a, (0,))
 
             return None
 
@@ -1117,10 +1203,11 @@ class StateInt(Variable):
         self.value = 0
 
     def set(self, value):
-        if value >= (- 2 ** (self.width - 1)) and value <= (2 ** (self.width - 1) - 1):
+        if True: # value >= (- 2 ** (self.width - 1)) and value <= (2 ** (self.width - 1) - 1):
             self.value = value
         else:
-            raise RuntimeError('Value is out of range.')
+            raise RuntimeError('Value %d is out of range for int width %d.'
+                               % (value, self.width))
 
     def __int__(self):
         return self.value

@@ -281,7 +281,7 @@ class NetBuilder(ast.NodeVisitor):
 
         # Match box specification from docstring.
         spec = str(box.__doc__).strip()
-        m = re.match('^([1-9]\d*)(T|T\*|I|DO|DU|H)$', spec)
+        m = re.match('^([1-9]\d*)(T|T\*|I|DO|DU|MO|MU|MS|H)$', spec)
 
         if m:
             n_out, cat = m.groups()
@@ -308,10 +308,17 @@ class NetBuilder(ast.NodeVisitor):
 
             elif cat[0] == 'D':
                 ordered = True if cat[1] != 'U' else False
-                segmentable = True if cat[1] == 'S' or cat[1] == 'U' else False
+                segmentable = False
 
                 obj = components.DyadicReductor(vertex.name, inputs, outputs, box,
                                      ordered, segmentable)
+
+            elif cat[0] == 'M':
+                ordered = True if cat[1] != 'U' else False
+                segmentable = True if cat[1] == 'S' or cat[1] == 'U' else False
+
+                obj = components.MonadicReductor(vertex.name, inputs, outputs,
+                                                 box, ordered, segmentable)
 
             elif cat == 'H':
                 obj = components.Executor(vertex.name, inputs, outputs, box)
