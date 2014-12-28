@@ -78,6 +78,7 @@ class Network:
             vertex = self.vc[vertex_id]
 
             while True:
+
                 assert(not vertex.busy)
                 assert(vertex.is_ready() == (True, True))
 
@@ -92,6 +93,7 @@ class Network:
                     # 3.1 Input message were handled in fetch(), box execution
                     #     is not required.
                     self._impact(vertex)
+
                     break
 
                 #--------------------------------------------------------------
@@ -117,21 +119,68 @@ class Network:
                         self.add_node(obj)
                         vertex.nodes[obj.id] = obj
 
-                        self.network.show()
-                        print()
-
                         for msg in args[1]:
-                            obj.inputs[0]['queue'].put(msg)
+                            target_id = obj.inputs[0]['vid']
+                            self.vc[target_id].inputs[0]['queue'].put(msg)
 
                         self.potential.add(obj.inputs[0]['vid'])
 
-                        break
+                        #self.network.show()
+                        #print()
 
                     if 2 in args:
                         for msg in args[2]:
                             vertex.merger.inputs[0]['queue'].put(msg)
                         self.potential.add(vertex.merger.id)
-                        break
+
+                    if 3 in args:
+
+                        stage = None
+                        stage_id = None
+
+                        for i, s in enumerate(vertex.stages):
+                            sv = visitors.SyncVisitor()
+                            sv.traverse(s)
+
+                            if sv.rfp is True:
+                                stage = s
+                                stage_id = i
+                                break
+
+                        if stage:
+                            src = stage.inputs[0]['src']
+                            dst = stage.outputs[0]['dst']
+
+                            src_vertex = self.vc[src[0]]
+                            dst_vertex = self.vc[dst[0]]
+
+                            # Transfer messages enqueued to the stage to be
+                            # removed.
+                            old_queue = stage.inputs[0]['queue']
+                            while not old_queue.is_empty():
+                                m = old_queue.get()
+                                dst_vertex.inputs[0]['queue'].put(m)
+
+                            # Rewire to the next stage.
+                            src_vertex.add_wire(src[1], dst_vertex, dst[1])
+
+                            idv = visitors.IDVisitor()
+                            idv.traverse(stage)
+
+                            for i in idv.ids:
+                                if i in self.vc:
+                                    del self.vc[i]
+
+                            self.ready -= set(idv.ids)
+                            self.potential -= set(idv.ids)
+
+                            del vertex.nodes[stage.id]
+                            vertex.stages.pop(stage_id)
+
+                        #self.network.show()
+                        #print()
+
+                    break
 
                 #--------------------------------------------------------------
 
@@ -163,8 +212,12 @@ class Network:
                     break
 
                 if response.vertex_id not in self.vc:
-                    raise ValueError('Vertex corresponsing to the response '
-                                     'does not exist.')
+
+                    self.network.show()
+                    print()
+
+                    raise ValueError('Vertex (%d) corresponsing to the response '
+                                     'does not exist.' % response.vertex_id)
 
                 vertex = self.vc[response.vertex_id]
 

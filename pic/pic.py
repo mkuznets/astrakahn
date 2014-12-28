@@ -4,15 +4,32 @@
 net PIC (in | out)
 
 
-  net fps_solve_phi (_1| _1, __output__)
+  net fps_solve_phi (_1| _1, __output__, __remove__)
     synch fps_begin [FPS_PORT=_1, STAGE_IN=in] "../compiler/net/tests/star/fps_begin.sync"
     synch fps_end [FPS_PORT=_1, STAGE_OUT=out] "../compiler/net/tests/star/fps_end.sync"
+    synch rfp_test [FPS_PORT=_1] "../compiler/net/tests/star/rfp_test.sync"
   connect
-    fps_begin.. <in|solve_phi|out> .. fps_end
+    rfp_test .. fps_begin .. <in|solve_phi|out> .. fps_end
+  end
+
+  net scatter_reduce (_1 | _1)
+  connect
+    join_grid .. scatter_exchange .. assemble_grid
+  end
+
+  net field_reduce (_1 | _1)
+  connect
+    join_grid .. assemble_grid
   end
 
 connect
-  <in|scatter|> .. (fps_solve_phi)* .. solve_e .. gather .. <|move|out>
+  #<in|scatter|> .. (fps_solve_phi)* .. solve_e .. gather .. <|move|out>
+  #<in|scatter|> .. solve_phi .. solve_e .. gather .. <|move|out>
+
+  #<in|scatter|out> ||
+  (<in|~|_1> ..
+    split_grid .. scatter .. (fps_solve_phi)*
+  .. <_1|~|out>)
 end
 '''
 
@@ -46,11 +63,30 @@ def c_scatter(m):
             else:
                 rho[0] += x_shift
 
-    n0 = m['NP'] * m['dh'] / float(m['L'])
+    n0 = (m['NPF'] if 'NPF' in m else m['NP']) * m['dh'] / float(m['L'])
+
     rho /= n0
     rho -= 1
 
+    if 'rghost' in m:
+        m['rghost'][0] /= n0
+        m['rghost'][0] - 1
+
     return ('send', {0: m}, None)
+
+
+def c_scatter_exchange(m):
+    '1T'
+
+    n = len(m['grids'])
+
+    for i, g, lghost, rghost in m['grids']:
+        grid = m['grids'][(i+1) % n][1][:,0]
+        grid[0] += rghost[0]
+
+    return ('send', {0: m}, None)
+
+#------------------------------------------------------------------------------
 
 
 def c_solve_phi(m):
@@ -80,7 +116,7 @@ def c_solve_phi(m):
 
     m['residual'] = np.linalg.norm(phi - phi_p, ord=np.inf)
 
-    if m['residual'] < 1e-3:
+    if m['residual'] < 4e-3:
         m['ffp'] = True
 
     return ('send', {0: m}, None)
@@ -186,6 +222,144 @@ def c_move(m):
 #------------------------------------------------------------------------------
 
 
+def c_split_grid(m):
+    '1I'
+
+    import numpy as np
+
+    if 'nsplit' not in m:
+        # Partition is not needed.
+        return ('terminate', {0: m}, None)
+
+    if 'nchunk' not in m:
+        # Initialize induction.
+
+        m['nchunk'] = 0
+
+        # Sort particles by coordinate.
+        m['part'] = m['part'][m['part'][:,0].argsort()]
+
+        # Divide grid into nearly equal parts.
+        m['grid'] = np.array_split(m['grid'], m['nsplit'])
+
+        part_fragments = []
+
+        s = 0
+        for f in m['grid']:
+
+            sc = s * m['dh']
+            ec = (s + f.shape[0] - 1) * m['dh']
+
+            l, r = np.searchsorted(m['part'][:,0], [sc, ec + m['dh']])
+            part_fragments.append(m['part'][l:r])
+
+            s += f.shape[0]
+
+        m['part'] = part_fragments
+
+        m['sc'] = 0
+
+    nchunk = m['nchunk']
+
+    chunk = m.copy()
+    chunk['part'] = m['part'][nchunk]
+    chunk['grid'] = m['grid'][nchunk]
+
+    chunk['lghost'] = m['grid'][nchunk-1][-1].copy()
+    chunk['rghost'] = m['grid'][(nchunk+1) % m['nsplit']][0].copy()
+
+    chunk['NG'] = len(chunk['grid'])
+    chunk['NP'] = len(chunk['part'])
+
+    chunk['NGF'] = m['NG']
+    chunk['NPF'] = m['NP']
+
+    chunk['sc'] = m['sc']
+    m['sc'] += chunk['NG']
+
+    chunk['splitted'] = True
+
+    m['nchunk'] += 1
+
+    if m['nchunk'] < m['nsplit']:
+        # Generate with continuation
+        return ('continue', {0: chunk},  m)
+    else:
+        return ('terminate', {0: chunk},  None)
+
+
+def c_join_grid(acc, term):
+    '1MU'
+
+    import numpy as np
+
+    def _print(m):
+        arrays = []
+        primitive = []
+        for label in m:
+            if type(m[label]) is np.ndarray:
+                arrays.append('%s [%d]' % (label, len(m[label])))
+            elif type(m[label]) is list:
+                primitive.append('%s [%d]' % (label, len(m[label])))
+            else:
+                primitive.append('%s = %s' % (label, str(m[label])))
+
+        #print('|', ', '.join(arrays))
+        #print('|', ', '.join(primitive))
+        #print()
+
+
+    #_print(term)
+    _print(acc)
+
+    if 'grids' not in acc:
+        acc['grids'] = [(acc['nchunk'], acc['grid'], acc['lghost'], acc['rghost'])]
+        acc['parts'] = [(acc['nchunk'], acc['part'])]
+
+        acc['indexes'] = [(acc['sc'], acc['NG'])]
+
+        del acc['part'], acc['grid'], acc['nchunk']
+        acc.pop('lghost', None)
+        acc.pop('rghost', None)
+
+
+    acc['grids'].append((term['nchunk'], term['grid'], term['lghost'], term['rghost']))
+    acc['parts'].append((term['nchunk'], term['part']))
+    acc['indexes'].append((term['sc'], term['NG']))
+
+    acc['grids'] = sorted(acc['grids'], key=lambda s: s[0])
+    acc['parts'] = sorted(acc['parts'], key=lambda s: s[0])
+    acc['indexes'] = sorted(acc['indexes'], key=lambda s: s[0])
+
+    acc['NP'] += term['NP']
+
+    assert(len(acc['grids']) == len(acc['parts']))
+    assert(len(acc['grids']) <= acc['nsplit'])
+
+    return ('partial', {}, acc)
+
+def c_assemble_grid(m):
+    '1T'
+
+    import numpy as np
+    import ctypes as ct
+
+    # Test for the grids to form a contiguous region.
+    for i in range(1, len(m['indexes'])):
+        assert(m['indexes'][i][0] == sum(m['indexes'][i-1]))
+
+    m['sc'] = m['indexes'][0][0]
+    m['NG'] = sum(m['indexes'][-1])
+
+    m['part'] = np.concatenate(tuple(p[1] for p in m['parts']))
+    m['grid'] = np.concatenate(tuple(p[1] for p in m['grids']))
+
+    del m['grids'], m['parts'], m['indexes']
+
+    return ('send', {0: m}, None)
+
+#------------------------------------------------------------------------------
+
 def init(L=100, NG=1025, NP=10000, vb=3, dt=0.1, NT=300):
     from random import random
     import numpy as np
@@ -221,20 +395,49 @@ def init(L=100, NG=1025, NP=10000, vb=3, dt=0.1, NT=300):
 
     problem = {
         'grid': grid, 'NG': NG, 'part': part, 'NP': NP,
-        'L': L, 'dt': dt, 'dh': dh, 'n0': n0, 'NT': NT, 'sc': 0, 't': 0, 'rfp': True
+        'L': L, 'dt': dt, 'dh': dh, 'n0': n0, 'NT': NT, 'sc': 0, 't': 0,
+        'nsplit': 3
     }
 
     return problem
 
 m = init()
-m = comm.Record(m)
 
-__input__ = {'in': [m]}
+__input__ = {'in': [
+    comm.Record(m),
+    comm.SegmentationMark(0)
+]}
 
 def __output__(stream):
     '1H'
+
+    def _print(m):
+        arrays = []
+        primitive = []
+        for label in m:
+            if type(m[label]) is np.ndarray:
+                arrays.append('%s [%d]' % (label, len(m[label])))
+            else:
+                primitive.append('%s = %s' % (label, str(m[label])))
+
+        print('|', ', '.join(arrays))
+        print('|', ', '.join(primitive))
+        print()
+
+    import numpy as np
+
     for i, ch, msg in stream:
-        print(msg)
+        if msg.is_segmark():
+            print(msg, "\n")
+        else:
+            c = msg.content
+            #print('splitted' in c,
+            #      c['grid'][:,0])
+            _print(msg.content)
+
+            #w = open('1' if 'splitted' in c else '2', 'w')
+            #w.write("\n".join(str(i) for i in c['grid'][:,0]))
+            #w.close()
 
 import astrakahn
 astrakahn.start()

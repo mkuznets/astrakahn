@@ -93,9 +93,12 @@ class Node:
         dst_vid = dst_vertex.inputs[dst_port]['vid']
         dst_vid = dst_vid if dst_vid else dst_vertex.id
 
+        src_vid = self.outputs[src_port]['vid']
+        src_vid = src_vid if src_vid else self.id
+
         # Set source and destination ids.
         self.outputs[src_port]['dst'] = (dst_vid, dst_port)
-        dst_vertex.inputs[dst_port]['src'] = (self.id, src_port)
+        dst_vertex.inputs[dst_port]['src'] = (src_vid, src_port)
 
 
 class Net(Node):
@@ -181,12 +184,16 @@ class Vertex(Node):
 
         return input_ready
 
-    def inputs_available(self):
+    def inputs_available(self, rng=None):
         port_list = []
 
-        for i, p in enumerate(self.inputs):
+        if rng is None:
+            rng = range(self.n_inputs)
+
+        for port_id in rng:
+            p = self.inputs[port_id]
             if not p['queue'].is_empty():
-                port_list.append(i)
+                port_list.append(port_id)
 
         return port_list
 
@@ -255,7 +262,7 @@ class StarNet(Vertex):
 
     def __init__(self, name, inputs, outputs, nodes):
 
-        inputs += ['__result__', '__output__']
+        inputs += ['__result__', '__output__', '__remove__']
         super(StarNet, self).__init__(name, inputs, outputs)
 
         self.nodes = {n.id: n for n in nodes}
@@ -275,7 +282,7 @@ class StarNet(Vertex):
 
 
     def is_ready(self):
-        if self.input_ready((1,2)):
+        if self.input_ready((1,2,3)):
             return (True, True)
         else:
             return (False, False)
@@ -284,7 +291,7 @@ class StarNet(Vertex):
 
         import compiler.net.backend as compiler
 
-        ready = self.inputs_available()
+        ready = self.inputs_available(rng=(1,2,3))
 
         result = {}
 
@@ -312,10 +319,14 @@ class StarNet(Vertex):
         # Mount result and output ports of the stage back to the StarNet
         stage.add_wire_name(self.stage_port, self, '__result__')
         stage.add_wire_name('__output__', self, '__output__')
+        stage.add_wire_name('__remove__', self, '__remove__')
 
         if len(self.stages) > 1:
             previous_stage = self.stages[-2]
             previous_stage.add_wire_name(self.stage_port, stage, self.stage_port)
+
+    def remove_stage(self, vertex_id):
+        pass
 
 
 
@@ -591,11 +602,20 @@ class Merger(Box):
     def __init__(self, name, inputs, outputs, core=None):
         super(Merger, self).__init__(name, inputs, outputs)
 
+        self.nterm = 0
+
     def fetch(self):
         for i in range(self.n_inputs):
             try:
                 m = self.get(i)
-                self.send_to_all(m)
+
+                if m.is_segmark() and m.n == 0:
+                    self.nterm += 1
+                    if self.nterm == self.n_inputs:
+                        self.send_to_all(m)
+                else:
+                    self.send_to_all(m)
+
 
             except comm.Empty:
                 continue
@@ -709,7 +729,12 @@ class Sync(Vertex):
 
         self.run()
 
-        print(self.id, old_st, '->', self.state.name)
+        if type(self.this['msg'].content) is dict:
+            mt = self.this['msg'].content.keys()
+        else:
+            mt = type(self.this['msg'])
+
+        #print(mt, self.id, old_st, '->', self.state.name)
 
         return None
 
@@ -1021,8 +1046,13 @@ class Transition:
             elif mtype == 'MsgData':
                 alt, dataexp = msg[1:]
 
-                content = self._compute_dataexp(dataexp[1])
-                outcome = comm.Record(content)
+                result = self._compute_dataexp(dataexp[1])
+                if type(result) is int:
+                    outcome = comm.SegmentationMark(result)
+                elif type(result) is dict:
+                    outcome = comm.Record(result)
+                else:
+                    raise AssertionError('Wrong dataexp.')
 
                 if alt:
                     outcome.alt = alt
@@ -1059,10 +1089,15 @@ class Transition:
 
         content = {}
 
+        if len(items) == 1 and items[0][0] == 'ItemThis':
+            if self.this['msg'].is_segmark():
+                return self.this['msg'].n
+            else:
+                return self.this['msg'].content
+
         for item in items:
 
             if item[0] == 'ItemThis':
-                assert(isinstance(self.this['msg'], comm.Record))
                 new_item = self.this['msg'].content
 
             elif item[0] == 'ItemVar':

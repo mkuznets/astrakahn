@@ -49,7 +49,7 @@ def get_net():
 
     src_code = caller['__doc__']
 
-    ast = compiler.parse(src_code)
+    ast = compiler.parse(src_code, path)
 
     if '__output__' in caller and inspect.isfunction(caller['__output__']):
         output_handler = caller['__output__']
@@ -75,7 +75,7 @@ def get_net():
 
 def start():
     net = get_net()
-    net.run(nproc=10)
+    net.run(nproc=2)
 
 
 def dump(network, hash, output_file=None):

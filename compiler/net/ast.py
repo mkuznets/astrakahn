@@ -164,10 +164,9 @@ class Synchroniser(Node):
 
     def children(self, expand=False):
         nodelist = []
-        if self.ast is not None: nodelist.append(("ast", self.ast))
         return tuple(nodelist)
 
-    attr_names = ('name','macros','path',)
+    attr_names = ('name','macros','path','ast',)
 
 class Morphism(Node):
     def __init__(self, trigger, split, map, join, override_list, coord=None):

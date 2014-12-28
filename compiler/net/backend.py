@@ -72,26 +72,26 @@ class NetBuilder(ast.NodeVisitor):
 
                 # Path of sync source: if it is not provided from net, use
                 #path of net source file.
-                if not decl.path:
-                    sync_path = self.path
-                    sync_file = os.path.join(sync_path, '%s.sync' % decl.name)
-                else:
-                    if decl.path[0] == '/':
-                        sync_path = decl.path
-                    else:
-                        sync_path = os.path.join(self.path, decl.path)
+                #if not decl.path:
+                #    sync_path = self.path
+                #    sync_file = os.path.join(sync_path, '%s.sync' % decl.name)
+                #else:
+                #    if decl.path[0] == '/':
+                #        sync_path = decl.path
+                #    else:
+                #        sync_path = os.path.join(self.path, decl.path)
 
-                    sync_file = sync_path
+                #    sync_file = sync_path
 
-                if not (os.path.isfile(sync_file)
-                        and os.access(sync_file, os.R_OK)):
-                    raise ValueError('File for sync `%s\' is not found or '
-                                     'cannot be read.' % decl.name)
+                #if not (os.path.isfile(sync_file)
+                #        and os.access(sync_file, os.R_OK)):
+                #    raise ValueError('File for sync `%s\' is not found or '
+                #                     'cannot be read.' % decl.name)
 
-                with open(sync_file, 'r') as f:
-                    src_code = f.read()
+                #with open(sync_file, 'r') as f:
+                #    src_code = f.read()
 
-                obj = self.compile_sync(src_code, decl.macros)
+                obj = self.compile_sync(decl.ast)
 
             elif type == 'core':
                 obj = self.compile_box(decl, node)
@@ -157,7 +157,7 @@ class NetBuilder(ast.NodeVisitor):
             if type(net) is not components.Net:
                 raise ValueError('*-operator can be applied to net only.')
 
-            if len(inputs) != 1 or len(outputs) != 2:
+            if len(inputs) != 1 or len(outputs) != 3:
                 raise ValueError('Stage layout: wrong number of inpus or outputs')
 
             stage_port = list(inputs)[0]
@@ -211,10 +211,7 @@ class NetBuilder(ast.NodeVisitor):
 
         return network
 
-    def compile_sync(self, src_code, macros):
-
-        sync_ast = sync_parse(src_code, macros)
-
+    def compile_sync(self, sync_ast):
         sb = SyncBuilder()
         obj = sb.traverse(sync_ast)
         obj.id = self._set_id()

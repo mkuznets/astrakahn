@@ -35,6 +35,9 @@ def core_wrapper(core, task_data):
 
         return Result(vertex_id, action, out_mapping, aux_data)
 
+def print_error(err):
+    print("Error in pool:", err)
+
 
 class PoolManager:
 
@@ -68,7 +71,7 @@ class PoolManager:
         while True:
             task = self.in_queue.get()
             pool.apply_async(core_wrapper, task, callback=self.dispatch_result,
-                             error_callback=print)
+                             error_callback=print_error)
 
         pool.close()
         pool.join()

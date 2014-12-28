@@ -29,6 +29,7 @@ class ExecutableVisitor(RuntimeVisitor):
                 or isinstance(node, components.StarNet):
             self.vertices.update({node.id: node})
 
+
 class CoreVisitor(RuntimeVisitor):
 
     def __init__(self):
@@ -42,3 +43,28 @@ class CoreVisitor(RuntimeVisitor):
                 and node.core.__name__.startswith('c_'):
             self.cores[node.core.__name__[2:]] = ('core', node.core)
 
+
+class SyncVisitor(RuntimeVisitor):
+
+    def __init__(self):
+        self.rfp = None
+
+    def generic_visit(self, node, children):
+        import components
+
+        if isinstance(node, components.Sync):
+            if self.rfp is None:
+                self.rfp = True
+
+                if (node.name == 'fps_begin' or node.name == 'fps_end')\
+                        and node.state_name != 'bypass':
+                    self.rfp = False
+
+class IDVisitor(RuntimeVisitor):
+
+    def __init__(self):
+        self.ids = []
+
+    def generic_visit(self, node, children):
+        import components
+        self.ids.append(node.id)

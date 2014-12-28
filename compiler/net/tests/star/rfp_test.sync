@@ -1,0 +1,31 @@
+synch rfp_test (FPS_PORT | FPS_PORT)
+{
+  state int(32) ngrid;
+
+  start {
+    on:
+	  FPS_PORT.@d {
+		send this => FPS_PORT;
+	  }
+
+	  FPS_PORT.(rfp) & [rfp] {
+		send this => FPS_PORT;
+	  }
+
+    elseon:
+      FPS_PORT.(NG, NGF) & [ngrid + NG == NGF] {
+        send (this || rfp: [1]) => FPS_PORT;
+      }
+
+      FPS_PORT.(NG, NGF) {
+		set ngrid = [ngrid + NG];
+        send this => FPS_PORT;
+      }
+
+    elseon:
+
+      FPS_PORT.(NG) {
+        send (this || rfp: [1]) => FPS_PORT;
+      }
+  }
+}
