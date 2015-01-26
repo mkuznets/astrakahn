@@ -411,6 +411,8 @@ class Inductor(Box):
         super(Inductor, self).__init__(name, inputs, outputs)
         self.core = core
 
+        self.segflag = False
+
     def fetch(self):
         m = self.get(0)
 
@@ -418,9 +420,14 @@ class Inductor(Box):
             # Special behaviour for segmentation marks.
             m.plus()
             self.send_to_all(m)
+            self.segflag = False
             return None
 
         else:
+            if self.segflag:
+                self.send_to_all(comm.SegmentationMark(1))
+                self.segflag = False
+
             return [m.content]
 
     def commit(self, response):
@@ -436,6 +443,7 @@ class Inductor(Box):
 
         elif response.action == 'terminate':
             self.send_out(response.out_mapping)
+            self.segflag = True
 
         else:
             print(response.action, 'is not implemented.')

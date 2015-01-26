@@ -3,24 +3,32 @@
 '''
 net PIC (in | out)
 
+  net fps_pic (_1| _1, __output__, __remove__)
 
-  net fps_solve_phi (_1| _1, __output__, __remove__)
-    synch fps_begin [FPS_PORT=_1, STAGE_IN=in] "../compiler/net/tests/star/fps_begin.sync"
-    synch fps_end [FPS_PORT=_1, STAGE_OUT=out] "../compiler/net/tests/star/fps_end.sync"
-    synch rfp_test [FPS_PORT=_1] "../compiler/net/tests/star/rfp_test.sync"
-  connect
-    rfp_test .. fps_begin .. <in|solve_phi|out> .. fps_end
-  end
+    synch fps_begin [FPS_PORT=_1, STAGE_IN=_1] "../compiler/net/tests/star/fps_begin.sync"
+    synch fps_end [FPS_PORT=_1, STAGE_OUT=_1] "../compiler/net/tests/star/fps_end.sync"
 
-  net scatter_reduce (_1 | _1)
-  connect
-    join_grid .. scatter_exchange .. assemble_grid
-  end
+    net fps_solve_phi (_1| _1, __output__, __remove__)
+      synch fps_begin [FPS_PORT=_1, STAGE_IN=in] "../compiler/net/tests/star/fps_begin.sync"
+      synch fps_end [FPS_PORT=_1, STAGE_OUT=out] "../compiler/net/tests/star/fps_end.sync"
+      synch rfp_test [FPS_PORT=_1] "../compiler/net/tests/star/rfp_test.sync"
+    connect
+      rfp_test .. fps_begin .. <in|solve_phi|out> .. fps_end
+    end
 
-  net field_reduce (_1 | _1)
-  connect
-    join_grid .. assemble_grid
-  end
+    net scatter_reduce (_1 | _1)
+    connect
+      join_grid .. scatter_exchange .. assemble_grid
+    end
+
+    net field_reduce (_1 | _1)
+    connect
+      join_grid .. assemble_grid
+    end
+
+    connect
+      fps_begin .. scatter .. (fps_solve_phi)* .. fps_end
+    end
 
 connect
   #<in|scatter|> .. (fps_solve_phi)* .. solve_e .. gather .. <|move|out>
@@ -28,7 +36,7 @@ connect
 
   #<in|scatter|out> ||
   (<in|~|_1> ..
-    split_grid .. scatter .. (fps_solve_phi)*
+    split_grid .. (fps_pic)*
   .. <_1|~|out>)
 end
 '''
