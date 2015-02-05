@@ -10,27 +10,32 @@ import visitors
 import re
 import os.path
 
-
 class NetBuilder(ast.NodeVisitor):
 
     def __init__(self, cores, path, node_id=0):
         self.cores = cores
-        self.scopes = []
 
-        self.node_id = node_id
+        self.scope_stack = []
+        self.net_stack = []
 
         self.path = path
         self.network = None
 
+    #--------------------------------------------------------------------------
+
     def generic_visit(self, node, children):
-        print(node)
+        print('Generic', node)
+
+    def get_net(self):
+        assert(self.net_stack)
+        return self.net_stack[-1]
 
     def scope(self):
         # Stack of scopes mustn't be empty
-        assert(self.scopes)
+        assert(self.scope_stack)
 
         # Copy the scope at the top of the stack
-        scope = self.scopes[-1].copy()
+        scope = self.scope_stack[-1].copy()
 
         # Add core entries.
         scope.update(self.cores)
@@ -69,28 +74,6 @@ class NetBuilder(ast.NodeVisitor):
                 raise NotImplementedError('¯\_(ツ)_/¯')
 
             elif type == 'sync':
-
-                # Path of sync source: if it is not provided from net, use
-                #path of net source file.
-                #if not decl.path:
-                #    sync_path = self.path
-                #    sync_file = os.path.join(sync_path, '%s.sync' % decl.name)
-                #else:
-                #    if decl.path[0] == '/':
-                #        sync_path = decl.path
-                #    else:
-                #        sync_path = os.path.join(self.path, decl.path)
-
-                #    sync_file = sync_path
-
-                #if not (os.path.isfile(sync_file)
-                #        and os.access(sync_file, os.R_OK)):
-                #    raise ValueError('File for sync `%s\' is not found or '
-                #                     'cannot be read.' % decl.name)
-
-                #with open(sync_file, 'r') as f:
-                #    src_code = f.read()
-
                 obj = self.compile_sync(decl.ast)
 
             elif type == 'core':
@@ -108,12 +91,20 @@ class NetBuilder(ast.NodeVisitor):
             raise ValueError('Node %s is undefined.' % node.name)
 
         assert(obj is not None)
-        return set((obj,))
+
+        net = self.get_net()
+        nid = net.add_node(obj)
+
+        return set((nid,))
 
     def visit_BinaryOp(self, node, children):
 
-        left = self._flatten(children['left'])
-        right = self._flatten(children['right'])
+        left, right = children['left'], children['right']
+
+        left = self._flatten(left)
+        right = self._flatten(right)
+
+        net = self.get_net()
 
         if node.op == '||':
             # Parallel connection: no wiring performs.
@@ -123,8 +114,10 @@ class NetBuilder(ast.NodeVisitor):
             # Serial connection: all outputs of the first operand are wired to
             # identically named inputs of the second operand if they exist.
 
-            _, left_outputs = self._global_ports(left)
-            right_inputs, _ = self._global_ports(right)
+            _, left_outputs = self._free_ports(left)
+            right_inputs, _ = self._free_ports(right)
+
+            print('BIN', left_outputs, right_inputs)
 
             # Compute identical port names.
             common_ports = left_outputs.keys() & right_inputs.keys()
@@ -135,7 +128,7 @@ class NetBuilder(ast.NodeVisitor):
                        and len(right_inputs[name]) == 1)
 
                 # Make `physical' connection between ports.
-                self._add_wire(left_outputs[name][0], right_inputs[name][0])
+                net.add_wire(left_outputs[name][0], right_inputs[name][0])
 
         else:
             raise ValueError('Wrong wiring operator.')
@@ -146,40 +139,43 @@ class NetBuilder(ast.NodeVisitor):
     def visit_UnaryOp(self, node, children):
 
         operand = self._flatten(children['operand'])
-        inputs, outputs = self._global_ports(operand)
+        inputs, outputs = self._free_ports(operand)
+
+        net = self.get_net()
 
         if node.op == '*':
-            if len(operand) != 1:
-                raise ValueError('*-operator can be applied to net only.')
+            pass
+            #if len(operand) != 1:
+            #    raise ValueError('*-operator can be applied to net only.')
 
-            net = operand.pop()
+            #net = operand.pop()
 
-            if type(net) is not components.Net:
-                raise ValueError('*-operator can be applied to net only.')
+            #if type(net) is not components.Net:
+            #    raise ValueError('*-operator can be applied to net only.')
 
-            if len(inputs) != 1 or len(outputs) != 3:
-                raise ValueError('Stage layout: wrong number of inpus or outputs')
+            #if len(inputs) != 1 or len(outputs) != 3:
+            #    raise ValueError('Stage layout: wrong number of inpus or outputs')
 
-            stage_port = list(inputs)[0]
+            #stage_port = list(inputs)[0]
 
-            if (stage_port not in outputs) or ('__output__' not in outputs):
-                raise ValueError('Stage layout: wrong channel naming.')
+            #if (stage_port not in outputs) or ('__output__' not in outputs):
+            #    raise ValueError('Stage layout: wrong channel naming.')
 
-            mrgr = components.Merger('__star_output__', ['__exit__'], [stage_port])
-            mrgr.id = self._set_id()
+            #mrgr = components.Merger('__star_output__', ['__exit__'], [stage_port])
+            #mrgr.id = self._get_node_id()
 
-            star_net = components.StarNet('__' + net.name + '_fps__',
-                                          [stage_port], [stage_port],
-                                          [net, mrgr])
-            star_net.id = self._set_id()
+            #star_net = components.StarNet('__' + net.name + '_fps__',
+            #                              [stage_port], [stage_port],
+            #                              [net, mrgr])
+            #star_net.id = self._get_node_id()
 
-            star_net.stages.append(net)
-            star_net.stage_port = stage_port
-            star_net.merger = mrgr
+            #star_net.stages.append(net)
+            #star_net.stage_port = stage_port
+            #star_net.merger = mrgr
 
-            star_net.wire_stages()
+            #star_net.wire_stages()
 
-            operand = set((star_net,))
+            #operand = set((star_net,))
 
         elif node.op == '\\':
 
@@ -191,7 +187,7 @@ class NetBuilder(ast.NodeVisitor):
                 assert(len(inputs[name]) == 1 and len(outputs[name]) == 1)
 
                 # Make `physical' connection between ports.
-                self._add_wire(outputs[name][0], inputs[name][0])
+                net.add_wire(outputs[name][0], inputs[name][0])
 
         return operand
 
@@ -207,15 +203,13 @@ class NetBuilder(ast.NodeVisitor):
 
     def compile(self, ast):
         obj = self.compile_net(ast)
-        network = Network(obj, self.node_id)
+        network = Network(obj)
 
         return network
 
     def compile_sync(self, sync_ast):
         sb = SyncBuilder()
         obj = sb.traverse(sync_ast)
-        obj.id = self._set_id()
-
         return obj
 
     def compile_net(self, net, vertex=None):
@@ -227,50 +221,48 @@ class NetBuilder(ast.NodeVisitor):
         for d in decls:
             scope[d[2]] = d
 
-        # Push current scope to stack
-        self.scopes.append(scope)
-
-        nodes = self.traverse(net.wiring)
-        nodes = self._flatten(nodes)
 
         inputs = self.traverse(net.inputs)
         outputs = self.traverse(net.outputs)
 
-        obj = components.Net(net.name, inputs, outputs, nodes)
-        obj.id = self._set_id()
+        obj = components.Net(net.name, inputs, outputs)
+
+        # Push current scope to stack
+        self.scope_stack.append(scope)
+
+        self.net_stack.append(obj)
+
+        nodes = self.traverse(net.wiring)
+        nodes = self._flatten(nodes)
 
         cv = visitors.CoreVisitor()
         cv.traverse(obj)
 
+        obj.id = 0
         obj.cores = cv.cores
-        obj.path = self.path
 
         obj.ast = net
 
-        nodes_inputs, nodes_outputs = self._global_ports(nodes)
+        nodes_inputs, nodes_outputs = self._free_ports(nodes)
 
-        # Mount inputs.
-        for i, name in enumerate(inputs):
-            if name not in nodes_inputs:
+        ## Mount inputs.
+        for i, p in obj.inputs.items():
+            if p.name not in nodes_inputs:
                 raise ValueError('There is no input port named `%s\' '
-                                 'in the net.' % name)
-            ports = nodes_inputs[name]
-            assert(len(ports) == 1)
-            obj.inputs[i] = ports[0][1]
+                                 'in the net.' % p.name)
+            endpoint = nodes_inputs[p.name][0]
+            obj.mount_input_port(i, endpoint)
 
-        # Mount outputs.
-        for i, name in enumerate(outputs):
-            if name not in nodes_outputs:
-                raise ValueError('There is no output port named `%s\' '
-                                 'in the net.' % name)
-            ports = nodes_outputs[name]
-            assert(len(ports) == 1)
-            obj.outputs[i] = ports[0][1]
+        ## Mount outputs.
+        for i, p in obj.outputs.items():
+            if p.name not in nodes_outputs:
+                raise ValueError('There is no input port named `%s\' '
+                                 'in the net.' % p.name)
+            endpoint = nodes_outputs[p.name][0]
+            obj.mount_output_port(i, endpoint)
 
-        obj.fix_port_id()
-
-        # Pop the scope from stack
-        self.scopes.pop()
+        self.scope_stack.pop()
+        self.net_stack.pop()
 
         return obj
 
@@ -323,7 +315,6 @@ class NetBuilder(ast.NodeVisitor):
             else:
                 raise ValueError('Wrong box category: %s:%s' % (vertex.name,
                                                                 cat))
-            obj.id = self._set_id()
             obj.ast = vertex
             return obj
 
@@ -344,42 +335,38 @@ class NetBuilder(ast.NodeVisitor):
                                         '-'.join(set(outputs)))
 
         obj = components.Merger(merger_name, inputs, outputs)
-        obj.id = self._set_id()
-
         return obj
 
     #--------------------------------------------------------------------------
 
-    def _set_id(self):
-        t = self.node_id
-        self.node_id += 1
-        return t
-
     def _gen_ports(self, n, rename):
         return [(rename.get(i, '_%s' % (i+1))) for i in range(n)]
 
-    def _global_ports(self, vertices):
+    def _free_ports(self, nodes):
         inputs = {}
         outputs = {}
 
-        for v in vertices:
-            fp = v.free_ports()
+        net = self.get_net()
 
-            # Free inputs
+        for nid in nodes:
+            fp = net.get_node(nid).free_ports()
+
+            # Collect free inputs
             for name, ports in fp[0].items():
                 inputs[name] = inputs.get(name, []) + ports
 
-            # Free outputs
+            # Collect free outputs
             for name, ports in fp[1].items():
                 outputs[name] = outputs.get(name, []) + ports
 
         return (inputs, outputs)
 
-    def _flatten(self, vertices):
+    def _flatten(self, nodes):
 
         mergers = set()
+        net = self.get_net()
 
-        inputs, outputs = self._global_ports(vertices)
+        inputs, outputs = self._free_ports(nodes)
 
         # Merger for inputs
         for name, ports in inputs.items():
@@ -387,10 +374,11 @@ class NetBuilder(ast.NodeVisitor):
 
             if np > 1:
                 obj = self.compile_merger([name], [name]*np)
-                mergers.add(obj)
+                merger_id = net.add_node(obj)
+                mergers.add(merger_id)
 
                 for i, port in enumerate(ports):
-                    self._add_wire((obj.id, obj.outputs[i]), port)
+                    net.add_wire((merger_id, i), port)
 
         # Merger for outputs
         for name, ports in outputs.items():
@@ -398,20 +386,12 @@ class NetBuilder(ast.NodeVisitor):
 
             if np > 1:
                 obj = self.compile_merger([name]*np, [name])
-                mergers.add(obj)
+                merger_id = net.add_node(obj)
+                mergers.add(merger_id)
 
                 for i, port in enumerate(ports):
-                    self._add_wire(port, (obj.id, obj.inputs[i]))
+                    net.add_wire(port, (merger_id, i))
 
-        return mergers | vertices
-
-    def _add_wire(self, pa, pb):
-
-        src_id, src_port = pa
-        dst_id, dst_port = pb
-
-        src_port['to'] = dst_port['queue']
-        src_port['dst'] = (dst_port['vid'], dst_port['id'])
-        dst_port['src'] = (src_port['vid'], src_port['id'])
+        return nodes | mergers
 
     #--------------------------------------------------------------------------

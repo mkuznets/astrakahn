@@ -17,17 +17,37 @@ class RuntimeVisitor(object):
         return visitor(node, children) if visitor else None
 
 
-class ExecutableVisitor(RuntimeVisitor):
+class ExecutableVisitor:
 
     def __init__(self):
+        self.vertex_path = []
         self.vertices = {}
 
     def generic_visit(self, node, children):
-        import components
+        if node.executable:
+            self.vertices.update({tuple(self.vertex_path): node})
+            node.path = tuple(self.vertex_path)
 
-        if isinstance(node, components.Vertex) \
-                or isinstance(node, components.StarNet):
-            self.vertices.update({node.id: node})
+    def traverse(self, node):
+
+        children = {}
+
+        if node.id > 0:
+            self.vertex_path.append(node.id)
+
+        if hasattr(node, 'nodes'):
+            for id, c in node.nodes.items():
+                outcome = self.traverse(c)
+                children[id] = outcome
+
+        method = 'visit_' + node.__class__.__name__
+        visitor = getattr(self, method, self.generic_visit)
+
+        result = visitor(node, children) if visitor else None
+
+        if node.id > 0:
+            self.vertex_path.pop()
+        return result
 
 
 class CoreVisitor(RuntimeVisitor):

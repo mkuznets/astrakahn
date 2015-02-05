@@ -2,209 +2,170 @@
 
 import sys
 import communication as comm
+from collections import Sequence
+
+
+class Port:
+    def __init__(self, name, id, sid=None):
+        self.name = name
+        self.id = id
+        self.sid = sid
+
+        self.channel = None
+
+
+class Stream:
+    def __init__(self, src=None, dst=None, channel=None):
+        self.src = src
+        self.dst = dst
+        self.channel = channel
+        self.taken = False
 
 
 class Node:
+    '''
+    Superclass of runtime components. Defines abstract execution interface and
+    communication facilities.
+
+    Attributes:
+        id (int): identifier of the node within the enclosed ``Net``. Equals
+            0 if the node is the root of the network, greater than 0 otherwise.
+        name (str): node name from the network description.
+        path (tuple of int): sequence of identifiers leading from the root of
+            the network to the node.
+        ast (compiler.net.ast.Node): abstract syntax tree of the node assigned
+            for possible usage at runtime.
+        executable (bool): indicates whether the node can accept and proccess
+            messages by its own.
+        busy (bool): indicates that the node is processing message(s) and
+            cannot read any more ones.
+        departures (set of int): identifiers of output ports to which messages
+            have been sent by the node.
+        inputs (dict of int:Port pairs): input ports of the node.
+        outputs (dict of int:Port pairs): output ports of the node.
+    '''
+
     def __init__(self, name, inputs, outputs):
-        self._id = None
+
+        self.id = None
+
         self.name = name
 
-        self.ast = None
-        self.cores = None
         self.path = None
+        self.ast = None
 
-        # Ports of the node itselt
-        self.inputs = [{'id': i, 'vid': self.id, 'name': n, 'queue': None, 'src': None}
-                       for i, n in enumerate(inputs)]
-        self.outputs = [{'id': i, 'vid': self.id, 'name': n, 'to': None, 'dst': None}
-                        for i, n in enumerate(outputs)]
+        self.executable = False
+        self.busy = False
 
-    # DIRTY FUCKING HACK
-    def fix_port_id(self):
-        for i, p in enumerate(self.inputs):
-            p['id'] = i
-        for i, p in enumerate(self.outputs):
-            p['id'] = i
+        self.departures = set()
 
-    @property
-    def id(self):
-        return self._id
+        # Initialise ports
+        self.inputs = {port_id: Port(name, port_id)
+                       for port_id, name in enumerate(inputs)}
+        self.outputs = {port_id: Port(name, port_id)
+                        for port_id, name in enumerate(outputs)}
 
-    # DIRTY FUCKING HACK
-    @id.setter
-    def id(self, value):
-        self._id = value
-        for i, p in enumerate(self.inputs):
-            p['vid'] = value
-        for i, p in enumerate(self.outputs):
-            p['vid'] = value
-
+    #--------------------------------------------------------------------------
 
     @property
+    # TODO: remove
     def n_inputs(self):
         return len(self.inputs)
 
     @property
+    # TODO: remove
     def n_outputs(self):
         return len(self.outputs)
 
+
     def free_ports(self):
+        '''
+        Get identifiers of input and outputs ports that are not connected to
+        any stream.
+
+        Returns:
+            tuple of the following structure::
+                (# Input ports:
+                    {
+                        <port-name>: [(<node-id>, <port-id>), ...)],
+                        ...
+                    },
+                 # Output ports:
+                    {
+                        # Likewise
+                        ...
+                    }
+                )
+        '''
+
         inputs = {}
         outputs = {}
 
-        for p in self.inputs:
-            name = p['name']
-            if p['src'] is None:
-                inputs[name] = inputs.get(name, []) + [(self.id, p)]
+        def get_free_ports(ports):
+            acc = {}
+            for i, p in ports.items():
+                name = p.name
+                if p.sid is None:
+                    acc[name] = acc.get(name, []) + [(self.id, p.id)]
+            return acc
 
-        for p in self.outputs:
-            name = p['name']
-            if p['dst'] is None:
-                outputs[name] = outputs.get(name, []) + [(self.id, p)]
+        inputs = get_free_ports(self.inputs)
+        outputs = get_free_ports(self.outputs)
 
         return (inputs, outputs)
 
+    def _get_input_channel(self, port_id):
+        return self.inputs[port_id].channel
 
-    def show(self, buf=sys.stdout, offset=0):
-        lead = ' ' * offset
-        buf.write(lead + str(self.id) + '. ' + self.__class__.__name__+ ' <' + self.name + "> ")
-        buf.write('(' + ', '.join(p['name'] + (str(p['src']) if p['src'] else '') for p in self.inputs) + ' | ')
-        buf.write(', '.join(p['name'] + (str(p['dst']) if p['dst'] else '') for p in self.outputs) + ')')
-        buf.write('\n')
-
-        if getattr(self, 'nodes', None):
-            for id, node in self.nodes.items():
-                node.show(buf, offset=offset+2)
-
-    def add_wire_name(self, src_port_name, dst_vertex, dst_port_name):
-
-        src_port = next(i for i, p in enumerate(self.outputs)
-                        if p['name'] == src_port_name)
-        dst_port = next(i for i, p in enumerate(dst_vertex.inputs)
-                        if p['name'] == dst_port_name)
-
-        self.add_wire(src_port, dst_vertex, dst_port)
-
-    def add_wire(self, src_port, dst_vertex, dst_port):
-
-        # Set port connection.
-        self.outputs[src_port]['to'] = dst_vertex.inputs[dst_port]['queue']
-
-        dst_vid = dst_vertex.inputs[dst_port]['vid']
-        dst_vid = dst_vid if dst_vid else dst_vertex.id
-
-        src_vid = self.outputs[src_port]['vid']
-        src_vid = src_vid if src_vid else self.id
-
-        # Set source and destination ids.
-        self.outputs[src_port]['dst'] = (dst_vid, dst_port)
-        dst_vertex.inputs[dst_port]['src'] = (src_vid, src_port)
-
-
-class Net(Node):
-
-    def __init__(self, name, inputs, outputs, nodes):
-        super(Net, self).__init__(name, inputs, outputs)
-
-        self.nodes = {n.id: n for n in nodes}
-
-
-class Vertex(Node):
-
-    def __init__(self, name, inputs, outputs):
-        super(Vertex, self).__init__(name, inputs, outputs)
-
-        # Initialize input queues.
-        for p in self.inputs:
-            p['queue'] = comm.Channel()
-
-        # Flag indicating that the box is processing another message.
-        self.busy = False
-
-        self.departures = []
+    def _get_output_channel(self, port_id):
+        return self.outputs[port_id].channel
 
     #--------------------------------------------------------------------------
 
-    def is_ready(self):
-
-        '''
-        Check if the condition on channels are sufficient for the vertex to
-        start.
-
-        NOTE: The very implementation applies for common types of vertices that
-        need (1) at least one message on one of the inputs (2) all outputs to
-        be available.
-        '''
-        # Test if there's an input message.
-        input_ready = self.input_ready()
-
-        # Test availability of outputs.
-        output_ready = self.output_ready()
-
-        return (input_ready, output_ready)
-
-    # TODO: the method is run on the assumption that is_ready() returned True,
-    # this creates undesirable logical dependence between these methods.
-    def fetch(self):
-        '''
-        Fetch required number of message(s) from input queue(s) and return the
-        data in the form suitable for processing pool.
-        '''
-        raise NotImplemented('The fetch method is not defined for the '
-                             'abstract vertex.')
-
-    def commit(self, response):
-        '''
-        Handle the result received from processing pool. Return the number of
-        output messages sent.
-        '''
-        raise NotImplemented('The commit method is not defined for the '
-                             'abstract vertex.')
-
-    #--------------------------------------------------------------------------
-
-    def input_ready(self, rng=None, any_channel=True, nmsg=1):
+    def is_input_ready(self, rng=None, any_port=True, nmsg=1):
         '''
         Returns True if there's a msg in at least one channel from the range.
         '''
         if rng is None:
-            rng = range(self.n_inputs)
+            rng = self.inputs.keys()
 
         input_ready = True
 
         for port_id in rng:
-            queue = self.inputs[port_id]['queue']
+            channel = self._get_input_channel(port_id)
 
-            ready = queue.size() >= nmsg
+            ready = channel.size() >= nmsg
 
-            if ready and any_channel:
+            if ready and any_port:
                 return True
             else:
                 input_ready &= ready
 
         return input_ready
 
-    def inputs_available(self, rng=None):
+    def get_ready_inputs(self, rng=None):
+
         port_list = []
 
         if rng is None:
-            rng = range(self.n_inputs)
+            rng = self.inputs.keys()
 
         for port_id in rng:
-            p = self.inputs[port_id]
-            if not p['queue'].is_empty():
+            channel = self._get_input_channel(port_id)
+            if not channel.is_empty():
                 port_list.append(port_id)
 
         return port_list
 
-    def output_ready(self, rng=None, space_needed=1):
+    def is_output_unblocked(self, rng=None, space_needed=1):
+
         if rng is None:
-            rng = range(self.n_outputs)
+            rng = self.outputs.keys()
 
         for port_id in rng:
-            to_queue = self.outputs[port_id]['to']
+            channel = self._get_output_channel(port_id)
 
-            if to_queue is None or not to_queue.is_space_for(space_needed):
+            if not channel.is_space_for(space_needed):
                 return False
 
         return True
@@ -214,192 +175,454 @@ class Vertex(Node):
     def send_dispatch(self, dispatch):
 
         for port_id, msgs in dispatch.items():
-            port = self.outputs[port_id]
+            channel = self._get_output_channel(port_id)
 
             for m in msgs:
-                port['to'].put(m)
+                channel.put(m)
 
-            self.departures.append(port['dst'])
-
-    def send_out(self, mapping):
-
-        for port_id, msg in mapping.items():
-            port = self.outputs[port_id]
-
-            port['to'].put(msg)
-            self.departures.append(port['dst'])
+            self.departures.add(port_id)
 
     def send_to_range(self, msg, rng):
-        mapping = {i: msg for i in rng}
-        self.send_out(mapping)
+        dispatch = {i: [msg] for i in rng}
+        self.send_dispatch(dispatch)
 
     def send_to_all(self, msg):
-        rng = range(self.n_outputs)
-        self.send_to_range(msg, rng)
+        self.send_to_range(msg, self.outputs.keys())
 
     def put_back(self, port_id, msg):
-        self.inputs[port_id]['queue'].put_back(msg)
+        channel = self._get_input_channel(port_id)
+        channel.put_back(msg)
 
     #--------------------------------------------------------------------------
 
     def get(self, port_id):
-        if port_id < 0 or port_id >= self.n_inputs:
-            raise IndexError('Wrong number of input port.')
-
-        port = self.inputs[port_id]
-
-        m = port['queue'].get()
-
-        return m
+        channel = self._get_input_channel(port_id)
+        return channel.get()
 
     def put(self, port_id, msg):
-        self.inputs[port_id]['queue'].put(msg)
+        channel = self._get_input_channel(port_id)
+        channel.put(msg)
 
     #--------------------------------------------------------------------------
 
+    def show(self, buf=sys.stdout, offset=0):
+        lead = ' ' * offset
+        buf.write(lead + str(self.id)
+                  + '. ' + self.__class__.__name__+ ' <' + self.name + "> ")
 
-class StarNet(Vertex):
+        ports = lambda ports:\
+            ', '.join('%s%s' % (p.name, ('[%s]' % p.sid if p.sid else ''))
+                      for i, p in ports.items())
 
-    def __init__(self, name, inputs, outputs, nodes):
+        buf.write("(%s | %s)\n" % (ports(self.inputs), ports(self.outputs)))
 
-        inputs += ['__result__', '__output__', '__remove__']
-        super(StarNet, self).__init__(name, inputs, outputs)
+        if getattr(self, 'nodes', None):
+            for id, node in self.nodes.items():
+                node.show(buf, offset=offset+2)
 
-        self.nodes = {n.id: n for n in nodes}
+    #--------------------------------------------------------------------------
 
-        self.stages = []
-        self.stage_port = None
-        self.merger = None
-
-        for p in self.inputs[-2:]:
-            p['queue'] = comm.Channel()
-
-    def current_stage(self):
-        if not self.stages:
-            return None
-        else:
-            return self.stages[-1]
-
+    #--------------------------------------------------------------------------
 
     def is_ready(self):
-        if self.input_ready((1,2,3)):
-            return (True, True)
-        else:
-            return (False, False)
+        '''
+        Test if the vertex if ready to execute.
+
+        Returns:
+            (tuple of bool): two Boolean values indicating readines of the
+                vertex respectively for input and output channels.
+        '''
+        raise NotImplementedError('The is_ready method is not defined for the '
+                                  'abstract vertex.')
 
     def fetch(self):
+        '''
+        Fetch required number of message(s) from input channel(s) and return
+        their contents.
 
-        import compiler.net.backend as compiler
+        Returns:
+            (list): contents of the fetched messages.
+        '''
+        raise NotImplementedError('The fetch method is not defined for the '
+                                  'abstract vertex.')
 
-        ready = self.inputs_available(rng=(1,2,3))
+    def run(self, msgs):
+        raise NotImplementedError('The run method is not defined for the '
+                                  'abstract vertex.')
 
-        result = {}
+    def commit(self, response):
+        '''
+        Handle the result received from processing pool. Return the number of
+        output messages sent.
 
-        for p in ready:
+        Args:
+            response (tuple): the computation result received from the pool.
+        '''
+        raise NotImplementedError('The commit method is not defined for the '
+                                  'abstract vertex.')
 
-            msgs = []
 
-            while self.input_ready(rng=(p,)):
-                msgs.append(self.get(p))
+class Net(Node):
+    '''
+    Node representing a subnetwork which can consist of both vertices and other
+    nets. By default the net is not executable.
 
-            result[p] = msgs
+    Attributes:
+        nodes (dict of Node): internal nodes of the net indexed by identifiers.
+    '''
 
-        return result
 
-    def wire_stages(self):
-        stage = self.current_stage()
+    def __init__(self, name, inputs, outputs):
+        super(Net, self).__init__(name, inputs, outputs)
 
-        if len(self.stages) == 1:
+        self._node_id = 1
+        self.nodes = {}
 
-            # Mount main StarNet ports to the first stage (input) and to the
-            # merger (output)
-            self.inputs[0] = stage.inputs[0]
-            self.outputs[0] = self.merger.outputs[0]
+        self.streams = {}
 
-        # Mount result and output ports of the stage back to the StarNet
-        stage.add_wire_name(self.stage_port, self, '__result__')
-        stage.add_wire_name('__output__', self, '__output__')
-        stage.add_wire_name('__remove__', self, '__remove__')
+        # Initialise external virtual streams.
+        for i in range(self.n_inputs):
+            sid = self._get_ext_stream_input(i)
+            self.streams[sid] = Stream(src=(-1, i))
+        for i in range(self.n_outputs):
+            sid = self._get_ext_stream_output(i)
+            self.streams[sid] = Stream(dst=(-1, i))
 
-        if len(self.stages) > 1:
-            previous_stage = self.stages[-2]
-            previous_stage.add_wire_name(self.stage_port, stage, self.stage_port)
+        self._sid = 1
 
-    def remove_stage(self, vertex_id):
-        pass
+    #--------------------------------------------------------------------------
 
+    def get_node_by_path(self, path):
+        '''
+        Accepts path of a node in the network, select the next ``Net`` and
+        call the method recursively for the subsequent relative path. The empty
+        path means refers to the ``self`` object.
+
+        Returns:
+            Node: the requested node once the only identifier left in the path,
+                or ``self`` object if the path is empty.
+
+        Raises:
+            ValueError: the path is malformed.
+            IndexError: the subsequent node is not in the net or its type
+                other than ``Net``.
+        '''
+
+        if not isinstance(path, Sequence):
+            raise ValueError('The path must be an ordered sequence.')
+
+        if not path:
+            return self
+
+        node_id, further_path = path
+
+        if node_id not in self.nodes:
+            raise IndexError('The requested node with id=%d not found in the'
+                             'net ``%s\'\'' % (node_id, self.name))
+
+        node = self.nodes[node_id]
+
+        if further_path:
+            # The selected node is not final
+
+            if not hasattr(node, 'nodes'):
+                raise IndexError('A vertex occured in the middle of the path.')
+
+            node.get_node_by_path(further_path)
+
+        else:
+            # Final node
+            return node
+
+    #--------------------------------------------------------------------------
+
+    def _get_ext_stream_input(self, port_id):
+        '''
+        Calculate external stream identifier for a given input port. By
+        convention, the identifiers are less than zero and cannot coincide with
+        the ones for outputs.
+
+        Args:
+            port_id (int): identifier of the input port.
+
+        Returns:
+            int: stream identifier less than zero.
+
+        Raises:
+            ValueError: the resulting ID greater of equals zero.
+        '''
+        stream_id = - (port_id + 1)
+
+        if stream_id > 0:
+            raise ValueError('The port identifier (%d) is malformed since it '
+                             'causes a negative stream ID: %d.'
+                             % (port_id, stream_id))
+        return stream_id
+
+    def _get_ext_stream_output(self, port_id):
+        '''
+        See `_get_ext_stream_input`_.
+        '''
+        stream_id = - (10000 + port_id)
+
+        if stream_id > 0:
+            raise ValueError('The port identifier (%d) is malformed since it '
+                             'causes a negative stream ID: %d.'
+                             % (i, stream_id))
+        return stream_id
+
+    def _alloc_new_node_id(self):
+        '''
+        Allocate new identifier for an internal node.
+
+        Returns:
+            int: new node identifier.
+        '''
+        t = self._node_id
+        self._node_id += 1
+        return t
+
+    def add_node(self, obj):
+        nid = self._alloc_new_node_id()
+        obj.id = nid
+        self.nodes[nid] = obj
+        return nid
+
+    def get_node(self, node_id):
+        '''
+        Get node object by its identifier within the net. Returns ``self``
+        object if the ID is zero.
+
+        Args:
+            node_id (int): node identifier within the net, or zero.
+
+        Returns:
+            A node with the given ID or ``self`` object if the ID is zero.
+
+        Raises:
+            IndexError: the ID not found in the new.
+        '''
+
+        if node_id == 0:
+            return self
+
+        if node_id not in self.nodes:
+            raise IndexError('The node identifier (%d) not found in the net '
+                             '``%s\'\'' % (node_id, self.name))
+
+        return self.nodes[node_id]
+
+    def _alloc_new_stream(self):
+        '''
+        Allocate new stream in the net.
+
+        Returns:
+            int: identifier of the new stream.
+        '''
+
+        free_streams = [i for i, stream in self.streams.items()
+                        if stream.taken is False and i > 0]
+
+        if not free_streams:
+            # All streams are taken - create a new one.
+            s = self._sid
+            self._sid += 1
+            self.streams[s] = Stream(channel=comm.Channel())
+        else:
+            # Choose any free stream.
+            s = free_streams.pop()
+
+        self.streams[s].taken = True
+        return s
+
+    def init_ext_streams(self):
+        '''
+        Append virtual streams to ports of the net.
+        '''
+        for i, stream in self.streams.items():
+            if i < 0:
+                stream.channel = comm.Channel()
+
+        for i, port in self.inputs.items():
+            port.sid = self._get_ext_stream_input(i)
+
+        for i, port in self.outputs.items():
+            port.sid = self._get_ext_stream_output(i)
+
+
+    # TODO: recursive version.
+    def update_channels(self, node_id):
+        '''
+        Insert stream channels to ports of the given node within the net.
+
+        Args:
+            node_id (int): node ID within the net.
+        '''
+        node = self.get_node(node_id)
+
+        for i, port in node.inputs.items():
+            if port.sid:
+                # TODO: make a stub for disconnected ports.
+                port.channel = self.streams[port.sid].channel
+
+        for i, port in node.outputs.items():
+            if port.sid:
+                port.channel = self.streams[port.sid].channel
+
+    #--------------------------------------------------------------------------
+
+    def add_wire(self, src, dst):
+        '''
+        Establish a connection between an output and input endpoints within the
+        net.
+
+        Args:
+            src (tuple of int): source endpoind of the form (<node-id>, <port-id>).
+            dst (tuple of int): destination endpoind, likewise.
+
+        Raises:
+            IndexError: a port identifier not found in the given node.
+        '''
+
+        sid = self._alloc_new_stream()
+        stream = self.streams[sid]
+        stream.taken = True
+
+        stream.src = src
+        stream.dst = dst
+
+        # Source endpoint.
+        src_node = self.get_node(src[0])
+
+        if src[1] not in src_node.outputs:
+            raise IndexError('Output port id=`%d\' not found in the node `%s\''
+                             % (src[1], src_node.name))
+
+        src_node.outputs[src[1]].sid = sid
+
+        # Destination endpoint.
+        dst_node = self.get_node(dst[0])
+
+        if dst[1] not in dst_node.inputs:
+            raise IndexError('Input port id=`%d\' not found in the node `%s\''
+                             % (dst[1], dst_node.name))
+
+        dst_node.inputs[dst[1]].sid = sid
+
+    def mount_input_port(self, ext_port_id, endpoint):
+        sid = self._get_ext_stream_input(ext_port_id)
+        stream = self.streams[sid]
+        stream.taken = True
+
+        stream.src = (-1, ext_port_id)
+        stream.dst = endpoint
+
+        dst_node = self.nodes[endpoint[0]]
+        dst_node.inputs[endpoint[1]].sid = sid
+
+
+    def mount_output_port(self, ext_port_id, endpoint):
+        sid = self._get_ext_stream_output(ext_port_id)
+        stream = self.streams[sid]
+        stream.taken = True
+
+        stream.dst = (-1, ext_port_id)
+        stream.src = endpoint
+
+        src_node = self.nodes[endpoint[0]]
+        src_node.outputs[endpoint[1]].sid = sid
+
+
+class Vertex(Node):
+
+    def __init__(self, name, inputs, outputs):
+        super(Vertex, self).__init__(name, inputs, outputs)
+
+        self.executable = True
 
 
 class Box(Vertex):
-    core = None
-    pass
 
+    def __init__(self, name, inputs, outputs, core):
+        super(Box, self).__init__(name, inputs, outputs)
 
-#------------------------------------------------------------------------------
+        self._core = None
+        self.core = core
+
+    @property
+    def core(self):
+        if not self._core:
+            raise ValueError('Function of the box `%s\' is not set.'
+                             % self.name)
+        return self._core
+
+    @core.setter
+    def core(self, func):
+        if not callable(func):
+            raise ValueError('Box function must by a callable object.')
+        self._core = func
+
+    #--------------------------------------------------------------------------
+
+    def _make_task(self, *args):
+        return (self.core, {'vertex_id': self.path, 'args': args})
 
 
 class Transductor(Box):
 
     def __init__(self, name, inputs, outputs, core):
-        super(Transductor, self).__init__(name, inputs, outputs)
-        self.core = core
+        super(Transductor, self).__init__(name, inputs, outputs, core)
+
+    def is_ready(self):
+        # Test if there's an input message.
+        is_input_msg = self.is_input_ready()
+
+        # Test availability of outputs.
+        output_ready = self.is_output_unblocked()
+
+        return (is_input_msg, output_ready)
 
     def fetch(self):
-
         m = self.get(0)
+        return [m]
+
+    def run(self, msgs):
+        assert(len(msgs) == 1)
+        m = msgs[0]
 
         if m.is_segmark():
-            # Special behaviour: sengmentation marks are sent through.
+            # Special behaviour: segmentation marks are sent through.
             self.send_to_all(m)
             return None
 
-        else:
-            return [m.content]
+        return self._make_task(m.content)
 
     def commit(self, response):
 
         if response.action == 'send':
             # Send output messages.
-            self.send_out(response.out_mapping)
+            self.send_dispatch(response.dispatch)
         else:
             print(response.action, 'is not implemented.')
 
 
-class Printer(Transductor):
-    '''
-    Temporary class of vertex, just for debugging
-    '''
-
-    def fetch(self):
-        m = self.get(0)
-        return [m.content]
-
-    def is_ready(self):
-
-        # Check if there's an input message.
-        input_ready = self.input_ready()
-        return (input_ready, True)
-
-
 class Executor(Box):
-    '''
-    Temporary class of vertex, just for debugging
-    '''
 
     def __init__(self, name, inputs, outputs, core):
-        super(Executor, self).__init__(name, inputs, outputs)
-        self.core = core
-
-    def fetch(self):
-        inputs = self.inputs_available()
-        m = [(pid, self.inputs[pid]['name'], self.get(pid)) for pid in inputs]
-        return [m]
+        super(Executor, self).__init__(name, inputs, outputs, core)
 
     def is_ready(self):
-
         # Check if there's an input message.
-        input_ready = self.input_ready()
-        return (input_ready, True)
+        is_input_msg = self.is_input_ready()
+        return (is_input_msg, True)
+
+    def fetch(self):
+        ready_inputs = self.get_ready_inputs()
+        m = [(pid, self.inputs[pid].name, self.get(pid)) for pid in ready_inputs]
+        return m
+
+    def run(self, msgs):
+        return self._make_task(msgs)
 
     def commit(self, response):
         pass
@@ -408,13 +631,26 @@ class Executor(Box):
 class Inductor(Box):
 
     def __init__(self, name, inputs, outputs, core):
-        super(Inductor, self).__init__(name, inputs, outputs)
-        self.core = core
+        super(Inductor, self).__init__(name, inputs, outputs, core)
 
         self.segflag = False
 
+    def is_ready(self):
+        # Test if there's an input message.
+        is_input_msg = self.is_input_ready()
+
+        # Test availability of outputs.
+        output_ready = self.is_output_unblocked()
+
+        return (is_input_msg, output_ready)
+
     def fetch(self):
         m = self.get(0)
+        return [m]
+
+    def run(self, msgs):
+        assert(len(msgs) == 1)
+        m = msgs[0]
 
         if m.is_segmark():
             # Special behaviour for segmentation marks.
@@ -428,7 +664,7 @@ class Inductor(Box):
                 self.send_to_all(comm.SegmentationMark(1))
                 self.segflag = False
 
-            return [m.content]
+            return self._make_task(m.content)
 
     def commit(self, response):
 
@@ -439,10 +675,10 @@ class Inductor(Box):
             # Put the continuation back to the input queue
             self.put_back(0, cont)
 
-            self.send_out(response.out_mapping)
+            self.send_dispatch(response.dispatch)
 
         elif response.action == 'terminate':
-            self.send_out(response.out_mapping)
+            self.send_dispatch(response.dispatch)
             self.segflag = True
 
         else:
@@ -452,64 +688,62 @@ class Inductor(Box):
 class DyadicReductor(Box):
 
     def __init__(self, name, inputs, outputs, core, ordered, segmented):
-        super(DyadicReductor, self).__init__(name, inputs, outputs)
-        self.core = core
+        super(DyadicReductor, self).__init__(name, inputs, outputs, core)
 
         self.ordered = ordered
         self.segmented = segmented
 
+        self._main_output = 0
+        self._aux_outputs = [port_id for port_id in self.outputs
+                             if port_id != self._main_output]
+
     def is_ready(self):
 
         ## Test input availability.
-        #
-
         # Reduction start: 2 messages from both channel are needed.
-        input_ready = self.input_ready(any_channel=False)
+        is_input_msg = self.is_input_ready(any_port=False)
 
         ## Test output availability.
-        #
+        output_ready = self.is_output_unblocked(self._aux_outputs)
 
-        output_ready = self.output_ready(range(1, self.n_outputs))
         # Test the 1st output separately since it must have enough space
         # for segmentation mark.
-        output_ready &= self.output_ready((0,), space_needed=2)
-
-        return (input_ready, output_ready)
+        output_ready &= self.is_output_unblocked((self._main_output,),
+                                                 space_needed=2)
+        return (is_input_msg, output_ready)
 
     def fetch(self):
+        return [self.get(i) for i in (0, 1)]
 
-        # First reduction operand:
-        term_a = self.get(0)
+    def run(self, msgs):
+        assert(len(msgs) == 2)
+        term_a, term_b = msgs
 
         if term_a.is_segmark():
             # Special behaviour for segmentation marks.
             term_a.plus()
-            self.send_to_range(term_a, range(1, self.n_outputs))
+            self.send_to_range(term_a, self._aux_outputs)
+            self.put_back(1, term_b)
             return None
-
-        # Second reduction operand
-        term_b = self.get(1)
 
         if term_b.is_segmark():
             # Special behaviour for segmentation marks.
-            self.send_out({0: term_a})
+            self.send_dispatch({self._main_output: [term_a]})
 
             if term_b.n != 1:
                 if term_b.n > 1:
                     term_b.minus()
-                self.send_out({0: term_b})
-
+                self.send_dispatch({self._main_output: [term_b]})
             return None
 
-        # Input messages are not segmarks: pass them to coordinator.
-        return [term_a.content, term_b.content]
+        return self._make_task(term_a.content, term_b.content)
 
     def commit(self, response):
 
         if response.action == 'partial':
             # First output channel cannot be the destination of partial result.
-            assert(0 not in response.out_mapping)
-            self.send_out(response.out_mapping)
+            assert(0 not in response.dispatch)
+            self.send_dispatch(response.dispatch)
 
             # Put partial reduction result to the first input channel for
             # further reduction.
@@ -522,80 +756,77 @@ class DyadicReductor(Box):
 class MonadicReductor(Box):
 
     def __init__(self, name, inputs, outputs, core, ordered, segmented):
-        super(MonadicReductor, self).__init__(name, inputs, outputs)
-        self.core = core
+        super(MonadicReductor, self).__init__(name, inputs, outputs, core)
 
         self.ordered = ordered
         self.segmented = segmented
 
+        self._main_output = 0
+        self._aux_outputs = [port_id for port_id in self.outputs
+                             if port_id != self._main_output]
+
     def is_ready(self):
-
         ## Test input availability.
-        #
-
         # Reduction start: 2 messages from the input channel are needed.
-        input_ready = self.input_ready(nmsg=2)
+        is_input_msg = self.is_input_ready(nmsg=2)
 
         ## Test output availability.
-        #
+        output_ready = self.is_output_unblocked(self._aux_outputs)
 
-        output_ready = self.output_ready(range(1, self.n_outputs))
         # Test the 1st output separately since it must have enough space
         # for segmentation mark.
-        output_ready &= self.output_ready((0,), space_needed=2)
-
-        return (input_ready, output_ready)
+        output_ready &= self.is_output_unblocked((self._main_output,),
+                                                 space_needed=2)
+        return (is_input_msg, output_ready)
 
     def fetch(self):
+        return [self.get(0) for i in range(2)]
 
-        # First reduction operand:
-        term_a = self.get(0)
+    def run(self, msgs):
+        assert(len(msgs) == 2)
+        term_a, term_b = msgs
 
         if term_a.is_segmark():
             # Special behaviour for segmentation marks.
-
             sm_b = comm.SegmentationMark(term_a.n)
             sm_b.plus()
-            self.send_to_range(sm_b, range(1, self.n_outputs))
+            self.send_to_range(sm_b, self._aux_outputs)
 
             if term_a.n != 1:
                 sm_a = comm.SegmentationMark(term_a.n)
                 if term_a.n > 1:
                     sm_a.minus()
-                self.send_to_range(sm_a, (0,))
+                self.send_to_range(sm_a, (self._main_output,))
 
+            self.put_back(0, term_b)
             return None
-
-        # Second reduction operand
-        term_b = self.get(0)
 
         if term_b.is_segmark():
             # Special behaviour for segmentation marks.
 
             # Partial result becomes final.
-            self.send_out({0: term_a})
+            self.send_dispatch({0: [term_a]})
 
             sm_b = comm.SegmentationMark(term_b.n)
             sm_b.plus()
-            self.send_to_range(sm_b, range(1, self.n_outputs))
+            self.send_to_range(sm_b, self._aux_outputs)
 
             if term_b.n != 1:
                 sm_a = comm.SegmentationMark(term_b.n)
                 if term_b.n > 1:
                     sm_a.minus()
-                self.send_to_range(sm_a, (0,))
-
+                self.send_to_range(sm_a, (self._main_output,))
             return None
 
         # Input messages are not segmarks: pass them to coordinator.
-        return [term_a.content, term_b.content]
+        return self._make_task(term_a.content, term_b.content)
 
     def commit(self, response):
 
         if response.action == 'partial':
             # First output channel cannot be the destination of partial result.
-            assert(0 not in response.out_mapping)
-            self.send_out(response.out_mapping)
+            assert(0 not in response.dispatch)
+            self.send_dispatch(response.dispatch)
 
             # Put partial reduction result to the first input channel for
             # further reduction.
@@ -605,30 +836,41 @@ class MonadicReductor(Box):
             print(response.action, 'is not implemented.')
 
 
-class Merger(Box):
+class Merger(Vertex):
 
-    def __init__(self, name, inputs, outputs, core=None):
+    def __init__(self, name, inputs, outputs):
         super(Merger, self).__init__(name, inputs, outputs)
 
         self.nterm = 0
 
+    def is_ready(self):
+        # Test if there's an input message.
+        is_input_msg = self.is_input_ready()
+
+        # Test availability of outputs.
+        output_ready = self.is_output_unblocked()
+
+        return (is_input_msg, output_ready)
+
     def fetch(self):
-        for i in range(self.n_inputs):
+        msgs = []
+        for i in self.inputs:
             try:
                 m = self.get(i)
-
-                if m.is_segmark() and m.n == 0:
-                    self.nterm += 1
-                    if self.nterm == self.n_inputs:
-                        self.send_to_all(m)
-                else:
-                    self.send_to_all(m)
-
-
+                msgs.append(m)
             except comm.Empty:
                 continue
-        return None
+        return msgs
 
+    def run(self, msgs):
+        for m in msgs:
+            if m.is_segmark() and m.n == 0:
+                self.nterm += 1
+                if self.nterm == self.n_inputs:
+                    self.send_to_all(m)
+            else:
+                self.send_to_all(m)
+        return None
 
 #------------------------------------------------------------------------------
 
@@ -675,11 +917,10 @@ class Sync(Vertex):
     #---------------------------------------------------
 
     def outputs_blocked(self):
-
         blocked = set()
 
-        for i, port in enumerate(self.outputs):
-            if port['to'] is None or not port['to'].is_space_for(1):
+        for i, port in self.outputs.items():
+            if not port.channel.is_space_for(1):
                 blocked.add(i)
 
         return blocked
@@ -689,10 +930,10 @@ class Sync(Vertex):
     def is_ready(self):
 
         # Inputs with messages available
-        inputs_available = self.inputs_available()
+        get_ready_inputs = self.get_ready_inputs()
 
         # Inputs that can cause transitions from the current state
-        inputs_feasible = set(inputs_available) & set(self.state.inputs())
+        inputs_feasible = set(get_ready_inputs) & set(self.state.inputs())
 
         if not inputs_feasible:
             # No transitions for available messages
@@ -733,20 +974,9 @@ class Sync(Vertex):
         # Increment usage counter on the chosen handler.
         self.port_handler.hit()
 
-        old_st = self.state.name
+        return (self.this['msg'],)
 
-        self.run()
-
-        if type(self.this['msg'].content) is dict:
-            mt = self.this['msg'].content.keys()
-        else:
-            mt = type(self.this['msg'])
-
-        #print(mt, self.id, old_st, '->', self.state.name)
-
-        return None
-
-    def run(self):
+    def run(self, msgs):
 
         transition = self.port_handler.choose_transition()
 
@@ -760,7 +990,6 @@ class Sync(Vertex):
 
         # 2. Send
         dispatch = transition.send()
-        #print('D', self.id, dispatch)
         self.send_dispatch(dispatch)
 
         # 3. Goto
@@ -774,6 +1003,8 @@ class Sync(Vertex):
 
         # Clean up
         self.scope.clear_tmp()
+
+        return None
 
     def choose_state(self, states):
         '''
@@ -1142,7 +1373,6 @@ class Transition:
 
 #------------------------------------------------------------------------------
 
-
 class Scope:
 
     def __init__(self, items):
@@ -1191,7 +1421,6 @@ class Scope:
         return name in self.index
 
 #------------------------------------------------------------------------------
-
 
 class Variable:
 

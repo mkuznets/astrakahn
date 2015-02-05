@@ -38,13 +38,6 @@ class Channel:
     def size(self):
         return len(self.queue)
 
-    def pressure(self):
-        if not self.capasity:
-            # Unpressurised channel
-            return 0
-        else:
-            return min(len(self.queue), self.capasity)
-
 
 class Message:
     """

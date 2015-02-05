@@ -47,9 +47,12 @@ def get_net():
     cores = {n[2:]: ('core', g)
              for n, g in caller.items() if inspect.isfunction(g) and n.startswith('c_')}
 
+    syncs = {n[2:]: g
+             for n, g in caller.items() if type(g) is str and n.startswith('s_')}
+
     src_code = caller['__doc__']
 
-    ast = compiler.parse(src_code, path)
+    ast = compiler.parse(src_code, syncs)
 
     if '__output__' in caller and inspect.isfunction(caller['__output__']):
         output_handler = caller['__output__']

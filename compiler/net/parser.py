@@ -93,9 +93,10 @@ def p_decl(p):
 
 def p_synchroniser(p):
     '''
-    synchroniser : SYNCH ID macros_opt path_opt
+    synchroniser : SYNCH ID macros_opt
     '''
-    p[0] = ast.Synchroniser(p[2], p[3], p[4], None)
+    p[0] = ast.Synchroniser(p[2], p[3], None)
+
 
 def p_macros_opt(p):
     '''
@@ -103,13 +104,6 @@ def p_macros_opt(p):
                | empty
     '''
     p[0] = p[2] if p[1] != '' else {}
-
-def p_path_opt(p):
-    '''
-    path_opt : STRING
-             | empty
-    '''
-    p[0] = p[1][1:-1] if p[1] != '' else ''
 
 
 def p_morphism(p):

@@ -33,7 +33,7 @@ def c_Test(m):
     mc.update({'n': n})
 
     #time.sleep(10)
-    return ('send', {0: mc}, None)
+    return ('send', {0: [mc]}, None)
 
 
 __input__ = {'in': [

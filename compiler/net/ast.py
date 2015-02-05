@@ -155,10 +155,9 @@ class DeclList(Node):
     attr_names = ()
 
 class Synchroniser(Node):
-    def __init__(self, name, macros, path, ast, coord=None):
+    def __init__(self, name, macros, ast, coord=None):
         self.name = name
         self.macros = macros
-        self.path = path
         self.ast = ast
         self.coord = coord
 
@@ -166,7 +165,7 @@ class Synchroniser(Node):
         nodelist = []
         return tuple(nodelist)
 
-    attr_names = ('name','macros','path','ast',)
+    attr_names = ('name','macros','ast',)
 
 class Morphism(Node):
     def __init__(self, trigger, split, map, join, override_list, coord=None):

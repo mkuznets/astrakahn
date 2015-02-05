@@ -3,7 +3,7 @@
 keywords = ['NET', 'PURE', 'CONNECT', 'END', 'MORPH', 'WHERE', 'SYNCH']
 
 tokens = keywords + [
-    'ID', 'NUMBER', 'STRING', 'SERIAL', 'PARALLEL', 'STAR', 'BACKSLASH', 'COMMA', 'VBAR',
+    'ID', 'NUMBER', 'SERIAL', 'PARALLEL', 'STAR', 'BACKSLASH', 'COMMA', 'VBAR',
     'LE', 'GE', 'LPAREN', 'RPAREN', 'LBRACKET', 'RBRACKET', 'SLASH', 'EQUAL',
     'LBRACE', 'RBRACE', 'COLON', 'MERGE'
 ]
@@ -52,10 +52,6 @@ t_ignore = " \t"
 def t_newline(t):
     r'\n+'
     t.lexer.lineno += t.value.count("\n")
-
-def t_STRING(t):
-    r'".+"'
-    return t
 
 def t_error(t):
     print("Illegal character '%s'" % t.value[0])

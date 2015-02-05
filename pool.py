@@ -10,7 +10,7 @@ import types
 import communication as comm
 
 Result = collections.namedtuple('Result',
-                                'vertex_id action out_mapping aux_data')
+                                'vertex_id action dispatch aux_data')
 
 def core_wrapper(core, task_data):
 
@@ -26,14 +26,15 @@ def core_wrapper(core, task_data):
         return Result(vertex_id, '', {}, None)
 
     else:
-        action, out_mapping, aux_data = output
+        action, dispatch, aux_data = output
 
-        out_mapping = {p: comm.Record(m) for p, m in out_mapping.items()}
+        dispatch = {p: [comm.Record(msg) for msg in stream]
+                    for p, stream in dispatch.items()}
 
         if aux_data:
             aux_data = comm.Record(aux_data)
 
-        return Result(vertex_id, action, out_mapping, aux_data)
+        return Result(vertex_id, action, dispatch, aux_data)
 
 def print_error(err):
     print("Error in pool:", err)
