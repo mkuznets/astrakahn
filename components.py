@@ -62,18 +62,19 @@ class Node:
         # Initialise ports
         self.inputs = {port_id: Port(name, port_id)
                        for port_id, name in enumerate(inputs)}
+        self.masked_inputs = {}
+
         self.outputs = {port_id: Port(name, port_id)
                         for port_id, name in enumerate(outputs)}
+        self.masked_outputs = {}
 
     #--------------------------------------------------------------------------
 
     @property
-    # TODO: remove
     def n_inputs(self):
         return len(self.inputs)
 
     @property
-    # TODO: remove
     def n_outputs(self):
         return len(self.outputs)
 
@@ -221,6 +222,51 @@ class Node:
                 node.show(buf, offset=offset+2)
 
     #--------------------------------------------------------------------------
+
+    def _add_ports(self, n_ports, ports):
+        port_id = max(ports) + 1
+        port_names = {i: '_%s' % i for i in range(port_id, port_id+n_ports)}
+
+        for port_id, name in port_names.items():
+            ports[port_id] = Port(name, port_id)
+
+        return tuple(port_names)
+
+    def add_input_ports(self, n_ports):
+        return self._add_ports(n_ports, self.inputs)
+
+    def add_output_ports(self, n_ports):
+        return self._add_ports(n_ports, self.outputs)
+
+    def _mask_ports(self, n, ports, masked):
+        if len(ports) - n >= 1:
+            masked.update(dict(ports.popitem() for i in range(n)))
+
+    def mask_input_ports(self, n):
+        return self._mask_ports(n, self.inputs, self.masked_inputs)
+
+    def mask_output_ports(self, n):
+        return self._mask_ports(n, self.outputs, self.masked_outputs)
+
+    def change_ports(self, n_in, n_out):
+        def _change(n, ports, masked, add, mask):
+            if n > 0:
+                n_unmask = 0
+                if masked:
+                    n_unmask = min(len(masked), n)
+                    ports.update(dict(masked.popitem() for i in range(n_unmask)))
+                new_ports = add(n - n_unmask)
+                return new_ports
+            elif n < 0:
+                mask(-n)
+
+        new_inputs = _change(n_in, self.inputs, self.masked_inputs,
+                             self.add_input_ports, self.mask_input_ports)
+
+        new_outputs = _change(n_out, self.outputs, self.masked_outputs,
+                              self.add_output_ports, self.mask_output_ports)
+
+        return (new_inputs, new_outputs)
 
     #--------------------------------------------------------------------------
 

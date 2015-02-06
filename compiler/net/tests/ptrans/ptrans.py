@@ -2,25 +2,108 @@
 
 '''
 net PTrans (in|out)
-synch __R__ "r.sync"
-synch __M__ "m.sync"
-synch __D__ "d.sync"
+synch __R__
+synch __M__
+synch __D__
 
 connect
-  <in|~|__in__> .. (__R__ .. __D__ .. (
+  (__R__ .. <r|~|t1, t2, t3, t4> .. (
 
-    <__t1__|Test|__mrg__>
-    || <__t2__|Test|__mrg__>
-    || <__t3__|Test|__mrg__>
-    || <__t4__|Test|__mrg__>
+    <t1|Test|__mrg__>
+    || <t2|Test|__mrg__>
+    || <t3|Test|__mrg__>
+    || <t4|Test|__mrg__>
 
-  ) .. __M__)\ .. <__out__|~|out>
+  ) .. __M__)\\
 end
 '''
 
 
-import communication as comm
+s___R__ = '''
+synch __R__ (in, __fb__ | r, __sm__)
+{
+  state int(32) seg_len;
 
+  start {
+    on:
+      in.@depth {
+        send (d: depth || l: seg_len) => __sm__;
+        goto wait_feedback;
+      }
+
+      in.else {
+        set seg_len = [seg_len + 1];
+        send this => r;
+      }
+  }
+
+  wait_feedback {
+    on:
+      __fb__ {
+        set seg_len = [0];
+        goto start;
+      }
+  }
+}
+'''
+
+s___D__ = '''
+synch __D__ (__rtr__ | __t1__, __t2__, __t3__, __t4__)
+{
+  start {
+    on:
+      __rtr__ {
+        send (this || t1: [1]) => __t1__;
+      }
+
+      __rtr__ {
+        send (this || t2: [1]) => __t2__;
+      }
+
+      __rtr__ {
+        send (this || t3: [1]) => __t3__;
+      }
+
+      __rtr__ {
+        send (this || t4: [1]) => __t4__;
+      }
+  }
+}
+'''
+
+s___M__ = '''
+synch __M__ (__mrg__, __sm__ | out, __fb__)
+{
+  state int(32) seg_len, exp_len, depth;
+
+  start {
+    on:
+      __mrg__ & [seg_len == (exp_len - 1)] {
+        set seg_len = [0], exp_len = [-1];
+        send this => out,
+             @depth => out,
+             (confirm : [1]) => __fb__;
+      }
+
+      __mrg__.else {
+        set seg_len = [seg_len + 1];
+        send this => out;
+      }
+
+      __sm__.(d, l) & [seg_len == l] {
+        set seg_len = [0], exp_len = [-1];
+        send @d => out,
+             (confirm : [1]) => __fb__;
+      }
+
+      __sm__.(d, l) & [seg_len < l]  {
+        set exp_len = [l], depth = [d];
+      }
+  }
+}
+'''
+
+import communication as comm
 
 def c_Test(m):
     '1T'

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 '''
-net Factorial (m | m)
+net Factorial (m | m1, m2, m3, m4)
 connect
-  <m|gen|m>
+  <m|~|m1, m2, m3, m4>
 end
 '''
 

@@ -101,23 +101,22 @@ class NetBuilder(ast.NodeVisitor):
 
         left, right = children['left'], children['right']
 
-        left = self._flatten(left)
-        right = self._flatten(right)
-
         net = self.get_net()
 
         if node.op == '||':
             # Parallel connection: no wiring performs.
+            # NOTE: Operand flattening must not be done here.
             pass
 
         elif node.op == '..':
             # Serial connection: all outputs of the first operand are wired to
             # identically named inputs of the second operand if they exist.
 
+            left = self._flatten(left)
+            right = self._flatten(right)
+
             _, left_outputs = self._free_ports(left)
             right_inputs, _ = self._free_ports(right)
-
-            print('BIN', left_outputs, right_inputs)
 
             # Compute identical port names.
             common_ports = left_outputs.keys() & right_inputs.keys()
