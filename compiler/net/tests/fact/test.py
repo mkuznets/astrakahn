@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 '''
-net Factorial (m | m1, m2, m3, m4)
+net Factorial (m | m)
 connect
-  <m|~|m1, m2, m3, m4>
+  <m|a|m,m>
 end
 '''
 
@@ -12,9 +12,12 @@ import communication as comm
 
 
 def c_a(m):
-    '2T'
+    '2T*'
     n = m['n']
-    return ('send', {0: [{'n': n + 10}]}, None)
+
+    for i in range(250 * (20 - n)):
+        z = sum(1.1**j for j in range(i))
+    return ('send', {0: [{'n': n, 'z': z}], 1: [{}]}, None)
 
 
 def c_b(m):
@@ -39,14 +42,16 @@ __input__ = {'m': []}
 
 from random import randint
 
-__input__['m'].append(comm.Record({'n': 6}))
-__input__['m'].append(comm.Record({'n': 5}))
-__input__['m'].append(comm.Record({'n': 3}))
-__input__['m'].append(comm.SegmentationMark(3))
-__input__['m'].append(comm.Record({'n': 4}))
-__input__['m'].append(comm.SegmentationMark(3))
-__input__['m'].append(comm.Record({'n': 2}))
+for i in range(20):
+    __input__['m'].append(comm.Record({'n': i}))
+
 __input__['m'].append(comm.SegmentationMark(0))
+
+#__input__['m'].append(comm.SegmentationMark(3))
+#__input__['m'].append(comm.Record({'n': 4}))
+#__input__['m'].append(comm.SegmentationMark(3))
+#__input__['m'].append(comm.Record({'n': 2}))
+#__input__['m'].append(comm.SegmentationMark(0))
 
 import astrakahn
 astrakahn.start()

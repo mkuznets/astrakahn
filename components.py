@@ -2,7 +2,7 @@
 
 import sys
 import communication as comm
-from collections import Sequence
+from collections import Sequence, deque, namedtuple
 
 
 class Port:
@@ -41,8 +41,8 @@ class Node:
             cannot read any more ones.
         departures (set of int): identifiers of output ports to which messages
             have been sent by the node.
-        inputs (dict of int:Port pairs): input ports of the node.
-        outputs (dict of int:Port pairs): output ports of the node.
+        inputs (dict of int:<list of port pairs>): input ports of the node.
+        outputs (dict of int:<list of port pairs>): output ports of the node.
     '''
 
     def __init__(self, name, inputs, outputs):
@@ -212,7 +212,8 @@ class Node:
                   + '. ' + self.__class__.__name__+ ' <' + self.name + "> ")
 
         ports = lambda ports:\
-            ', '.join('%s%s' % (p.name, ('[%s]' % p.sid if p.sid else ''))
+            ', '.join('%s%s%s' % (p.name, ('[%s]' % p.sid if p.sid else ''),
+                                   '[*]' if p.channel else '[]')
                       for i, p in ports.items())
 
         buf.write("(%s | %s)\n" % (ports(self.inputs), ports(self.outputs)))
@@ -360,10 +361,10 @@ class Net(Node):
         if not path:
             return self
 
-        node_id, further_path = path
+        node_id, *further_path = path
 
         if node_id not in self.nodes:
-            raise IndexError('The requested node with id=%d not found in the'
+            raise IndexError('The requested node with id=%d not found in the '
                              'net ``%s\'\'' % (node_id, self.name))
 
         node = self.nodes[node_id]
@@ -374,7 +375,7 @@ class Net(Node):
             if not hasattr(node, 'nodes'):
                 raise IndexError('A vertex occured in the middle of the path.')
 
-            node.get_node_by_path(further_path)
+            return node.get_node_by_path(further_path)
 
         else:
             # Final node
@@ -431,6 +432,12 @@ class Net(Node):
     def add_node(self, obj):
         nid = self._alloc_new_node_id()
         obj.id = nid
+
+        # Path of the net is now known during the initial construction (compile
+        # time), but known in runtime.
+        if self.path:
+            obj.path = tuple(self.path + (nid,))
+
         self.nodes[nid] = obj
         return nid
 
@@ -481,9 +488,11 @@ class Net(Node):
         self.streams[s].taken = True
         return s
 
-    def init_ext_streams(self):
+
+    def make_root(self):
         '''
-        Append virtual streams to ports of the net.
+        Append channels to the external streams. For a top level net it allows
+        an outside coordinator to put and get messages directly from the net.
         '''
         for i, stream in self.streams.items():
             if i < 0:
@@ -495,6 +504,23 @@ class Net(Node):
         for i, port in self.outputs.items():
             port.sid = self._get_ext_stream_output(i)
 
+    # TODO: recursive version.
+    def init_ext_streams(self, node_id):
+        '''
+        Args:
+            node_id (int): node ID within the net.
+        '''
+        node = self.get_node(node_id)
+
+        def init(node, ports, get_ext_f):
+            for i, port in ports.items():
+                if port.sid:
+                    get_ext = getattr(node, get_ext_f)
+                    ext_sid = get_ext(i)
+                    node.streams[ext_sid].channel = self.streams[port.sid].channel
+
+        init(node, node.inputs, '_get_ext_stream_input')
+        init(node, node.outputs, '_get_ext_stream_output')
 
     # TODO: recursive version.
     def update_channels(self, node_id):
@@ -614,9 +640,185 @@ class Box(Vertex):
         return (self.core, {'vertex_id': self.path, 'args': args})
 
 
+#--------------------------------------------------------------------------
+
+class PTransductor(Net):
+
+    def __init__(self, name, inputs, outputs, core):
+        assert(len(inputs) == 1)
+        super(PTransductor, self).__init__(name, inputs, outputs)
+        n_out = len(outputs)
+
+        # sl_copier: segment lenght copier
+        # fb_merger: feedback merger
+        parts_t = namedtuple('parts_t', 'router transductor out_mergers '
+                                        'sl_copier fb_merger')
+
+        self.parts = None
+        self.core = core
+        self.n_active = 1
+        self.n_total = 1
+
+        import libptrans as lib
+
+        # Router
+        router = Router('r1', inputs, ['_1'])
+        rid = self.add_node(router)
+
+        # Transductor
+        #core = eval('lambda m: ("send", {0: [{"T": 0}], 1: [{"T": 0}]}, None)')
+        transductor = Transductor('t1', ['_1'], ['_%s' % i for i in range(1, n_out+1)], core)
+        tid = self.add_node(transductor)
+
+        # Guard
+        gid = self.add_node(lib.build_guard(n_out))
+        # Mount net input to the Guard.
+        self.mount_input_port(0, (gid, 0))
+
+        # Connect Guard, Router and Transductor serially.
+        self.add_wire((gid, 0), (rid, 0))
+        self.add_wire((rid, 0), (tid, 0))
+
+        # Segment lenght copier
+        slc = Merger('SegLenCopier', ['__sl__'], ['__sl__'] * n_out)
+        slcid = self.add_node(slc)
+        # Connect the Guard to the Copier.
+        self.add_wire((gid, 1), (slcid, 0))
+
+        # Feedback Merger
+        fbm = Merger('FeedbackMerger', ['__fb__'] * n_out, ['__fb__'])
+        fbmid = self.add_node(fbm)
+        # Connect the Guard to the Copier.
+        self.add_wire((fbmid, 0), (gid, 1))
+
+        out_mergers = []
+
+        # Wire outputs of transductors.
+        for i in range(n_out):
+            # Add Merger to combine corresponding channels from all transductors.
+            m = Merger('m%d' % (i+1), ['_1'], ['_1'])
+            mid = self.add_node(m)
+            out_mergers.append(mid)
+            # Connect a Transductor output to the Merger
+            self.add_wire((tid, i), (mid, 0))
+
+            # Collector
+            cid = self.add_node(lib.build_collector())
+            # Connect the Merger to the Collector.
+            self.add_wire((mid, 0), (cid, 0))
+
+            # Connect the corresponding Copier output to the Collector
+            self.add_wire((slcid, i), (cid, 1))
+
+            # Connect the corresponding Collector output to the Feedback Merger.
+            self.add_wire((cid, 1), (fbmid, i))
+
+            # Mount corresponding net output to the Collector.
+            self.mount_output_port(i, (cid, 0))
+
+        self.parts = parts_t(rid, tid, out_mergers, slcid, fbmid)
+
+    def add_transductors(self, n):
+
+        assert(self.n_active <= self.n_total)
+
+        n_out = self.n_outputs
+
+        tids = []
+
+        for t in range(n):
+            # A new transductor
+            #core = eval('lambda m: ("send", {0: [{"T": %d}], 1: [{"T": %d}]}, None)'
+            #            % (t, t))
+            transductor = Transductor('t1', ['_1'],
+                                      ['_%s' % i for i in range(1, n_out+1)],
+                                      self.core)
+            tid = self.add_node(transductor)
+            tids.append(tid)
+
+        # Add new ports to the Router
+        router = self.get_node(self.parts.router)
+        _, ports = router.change_ports(0, n)
+        # Connect the Router to the new Transductors
+        for tid, p in zip(tids, ports):
+            self.add_wire((self.parts.router, p), (tid, 0))
+
+        for i, mid in enumerate(self.parts.out_mergers):
+            # Add new ports to each Merger
+            merger = self.get_node(mid)
+            ports, _ = merger.change_ports(n, 0)
+            # Connect corresponding Transductor outputs to the Mergers.
+            for tid, p in zip(tids, ports):
+                self.add_wire((tid, i), (mid, p))
+
+        self.update_channels(tid)
+        self.update_channels(self.parts.router)
+
+        for i, mid in enumerate(self.parts.out_mergers):
+            self.update_channels(mid)
+
+        self.n_active += 1
+        self.n_total += 1
+
+    def disable_transductors(self, n):
+        # Disable Router ports to the Router
+        router = self.get_node(self.parts.router)
+        assert(n <= router.n_inputs)
+        _, ports = router.change_ports(0, -n)
+
+    def enable_transductors(self, n):
+        # Enable Router ports to the Router
+        router = self.get_node(self.parts.router)
+        assert(n <= len(router.masked_inputs))
+        _, ports = router.change_ports(0, n)
+
+    def proliferate(self, factor):
+        # Pre-condition: transductor counters must be set correctly.
+        assert(self.n_active <= self.n_total)
+
+        factor = int(factor)
+
+        if factor < 1:
+            raise ValueError('Proliferation factor must be a positive integer.')
+
+        elif factor == self.n_active:
+            return
+
+        elif factor < self.n_active:
+            n = self.n_active - factor
+            tids = self.disable_transductors(n)
+
+            #if len(tids) != n:
+            #    raise RuntimeError('Could not enable %d tranductors for '
+            #                       'unknown reason (%d active / %d total)'
+            #                       % (n, self.n_active, self.n_total))
+
+        elif self.n_active < factor <= self.n_total:
+            n = factor - self.n_active
+            tids = self.enable_transductors(n)
+
+            #if len(tids) != n:
+            #    raise RuntimeError('Could not enable %d tranductors for '
+            #                       'unknown reason (%d active / %d total)'
+            #                       % (n, self.n_active,
+            #                          self.n_total))
+
+        elif factor > self.n_total:
+            # Add new transductors
+            self.add_transductors(factor - self.n_total)
+
+        # Post-condition: transductor counters must be set correctly.
+        assert(self.n_active <= self.n_total)
+
+
+
+#--------------------------------------------------------------------------
+
+
 class Transductor(Box):
 
     def __init__(self, name, inputs, outputs, core):
+        assert(len(inputs) == 1)
         super(Transductor, self).__init__(name, inputs, outputs, core)
 
     def is_ready(self):
@@ -677,6 +879,7 @@ class Executor(Box):
 class Inductor(Box):
 
     def __init__(self, name, inputs, outputs, core):
+        assert(len(inputs) == 1)
         super(Inductor, self).__init__(name, inputs, outputs, core)
 
         self.segflag = False
@@ -734,6 +937,7 @@ class Inductor(Box):
 class DyadicReductor(Box):
 
     def __init__(self, name, inputs, outputs, core, ordered, segmented):
+        assert(len(inputs) == 2)
         super(DyadicReductor, self).__init__(name, inputs, outputs, core)
 
         self.ordered = ordered
@@ -802,6 +1006,7 @@ class DyadicReductor(Box):
 class MonadicReductor(Box):
 
     def __init__(self, name, inputs, outputs, core, ordered, segmented):
+        assert(len(inputs) == 1)
         super(MonadicReductor, self).__init__(name, inputs, outputs, core)
 
         self.ordered = ordered
@@ -916,6 +1121,37 @@ class Merger(Vertex):
                     self.send_to_all(m)
             else:
                 self.send_to_all(m)
+        return None
+
+
+class Router(Vertex):
+
+    def __init__(self, name, inputs, outputs):
+        assert(len(inputs) == 1)
+        super(Router, self).__init__(name, inputs, outputs)
+        self.ports = deque(self.outputs)
+
+    def is_ready(self):
+        # Test if there's an input message.
+        is_input_msg = self.is_input_ready()
+        # Test availability of outputs.
+        output_ready = self.is_output_unblocked()
+        return (is_input_msg, output_ready)
+
+    def fetch(self):
+        m = self.get(0)
+        return [m]
+
+    def run(self, msgs):
+        assert(len(msgs) == 1)
+
+        # Update port deque.
+        if len(self.ports) != len(self.outputs):
+            diff = set(self.outputs) - set(self.ports)
+            self.ports.extend(diff)
+
+        self.send_dispatch({self.ports[0]: msgs})
+        self.ports.rotate()
         return None
 
 #------------------------------------------------------------------------------

@@ -17,16 +17,29 @@ class RuntimeVisitor(object):
         return visitor(node, children) if visitor else None
 
 
-class ExecutableVisitor:
+class NetworkVisitor:
 
     def __init__(self):
         self.vertex_path = []
+
         self.vertices = {}
+        self.ptrans = set()
+        self.nets = {}
 
     def generic_visit(self, node, children):
-        if node.executable:
-            self.vertices.update({tuple(self.vertex_path): node})
-            node.path = tuple(self.vertex_path)
+        node.path = tuple(self.vertex_path)
+        c = {tuple(self.vertex_path): node}
+
+        if hasattr(node, 'nodes'):
+            self.nets.update(c)
+
+            import components
+            if isinstance(node, components.PTransductor):
+                self.ptrans.add(node)
+        else:
+            self.vertices.update(c)
+
+
 
     def traverse(self, node):
 

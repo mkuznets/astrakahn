@@ -17,16 +17,22 @@ class Network:
         self.network = network
 
         # Cache of vertices in order to avoid network traversal.
-        gv = visitors.ExecutableVisitor()
+        gv = visitors.NetworkVisitor()
         gv.traverse(self.network)
         self.vc = gv.vertices
 
-        self.network.init_ext_streams()
+        self.network.make_root()
         self.network.update_channels(0)
 
-        # Put references of channels into the executable vertices.
-        for path, vertex in self.vc.items():
-            self.update_node_channels(path)
+        # Put references of channels into the vertices.
+        for path, vertex in gv.nets.items():
+            if path:
+                pn = self.get_parent_net(path)
+                pn.init_ext_streams(path[-1])
+
+        for path, vertex in gv.vertices.items():
+            pn = self.get_parent_net(path)
+            pn.update_channels(path[-1])
 
         # Placeholder for pool object
         self.pm = None
@@ -34,12 +40,29 @@ class Network:
         self.ready = set()
         self.potential = set()
 
+        ###################################
+
+
+        ptrans = gv.ptrans.pop()
+        ptrans.proliferate(20)
+
     def show(self):
         self.network.show()
 
-    def update_node_channels(self, path):
-        parent_net = self.network.get_node_by_path(path[1:])
-        parent_net.update_channels(path[-1])
+    def get_parent_net(self, path):
+        return self.network.get_node_by_path(path[:-1])
+
+    def get_by_path(self, path):
+        if path in self.vc:
+            return self.vc[path]
+        else:
+            node = self.network.get_node_by_path(path)
+            self.vc[path] = node
+
+            pn = self.get_parent_net(path)
+            pn.update_channels(path[-1])
+
+            return node
 
     def init_input(self, input_map):
         input_names = {p.name: i for i, p in self.network.inputs.items()}
@@ -70,9 +93,10 @@ class Network:
 
         while True:
             vertex_id = self.ready.pop()
-            vertex = self.vc[vertex_id]
+            vertex = self.get_by_path(vertex_id)
 
-            self.update_node_channels(vertex_id)
+            pn = self.get_parent_net(vertex_id)
+            pn.update_channels(vertex_id[-1])
 
             while True:
 
@@ -181,7 +205,7 @@ class Network:
             # TODO: fix repetition.
             # Test potentially ready vertices.
             for vid in self.potential:
-                vertex = self.vc[vid]
+                vertex = self.get_by_path(vid)
                 if (vertex.is_ready() == (True, True)) and not vertex.busy:
                     self.ready.add(vid)
             self.potential.clear()
@@ -194,15 +218,7 @@ class Network:
                 except Empty:
                     break
 
-                if response.vertex_id not in self.vc:
-
-                    self.network.show()
-                    print()
-
-                    raise ValueError('Vertex (%d) corresponsing to the response '
-                                     'does not exist.' % response.vertex_id)
-
-                vertex = self.vc[response.vertex_id]
+                vertex = self.get_by_path(response.vertex_id)
 
                 # Commit the result of computation, e.g. send it to destination
                 # vertices.
@@ -214,7 +230,7 @@ class Network:
                 #--------------------------------------------------------------
                 # Test potentially ready vertices.
                 for vid in self.potential:
-                    vertex = self.vc[vid]
+                    vertex = self.get_by_path(vid)
                     if (vertex.is_ready() == (True, True)) and not vertex.busy:
                         self.ready.add(vid)
                 self.potential.clear()
@@ -227,11 +243,27 @@ class Network:
             self.ready.add(vertex.path)
 
         for dst_port in vertex.departures:
-            parent_path = vertex.path[1:]
-            parent_net = self.network.get_node_by_path(parent_path)
 
-            stream = parent_net.streams[vertex.outputs[dst_port].sid]
+            dst_id = -1e6
+            v = vertex
+            path = vertex.path[:-1]
+            parent_net = self.network.get_node_by_path(path)
 
-            self.potential.add(parent_path + (stream.dst[0],))
+            while True:
+                stream = parent_net.streams[v.outputs[dst_port].sid]
+                dst_id, dst_port = stream.dst
+
+                if dst_id < 0:
+                    if not path:
+                        raise RuntimeError('Destination vertex not found.')
+
+                    parent_id = parent_net.id
+                    path = path[:-1]
+                    parent_net = self.network.get_node_by_path(path)
+                    v = parent_net.get_node(parent_id)
+                else:
+                    break
+
+            self.potential.add(path + (dst_id,))
 
         vertex.departures.clear()

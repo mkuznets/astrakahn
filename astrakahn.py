@@ -62,7 +62,7 @@ def get_net():
     cores['__output__'] = ('core', output_handler)
 
 
-    builder = compiler.backend.NetBuilder(cores, path)
+    builder = compiler.backend.NetBuilder(cores)
     net = builder.compile(ast)
 
     if '__input__' in caller and isinstance(caller['__input__'], dict):

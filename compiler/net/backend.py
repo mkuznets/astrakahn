@@ -12,13 +12,12 @@ import os.path
 
 class NetBuilder(ast.NodeVisitor):
 
-    def __init__(self, cores, path, node_id=0):
+    def __init__(self, cores):
         self.cores = cores
 
         self.scope_stack = []
         self.net_stack = []
 
-        self.path = path
         self.network = None
 
     #--------------------------------------------------------------------------
@@ -105,7 +104,6 @@ class NetBuilder(ast.NodeVisitor):
 
         if node.op == '||':
             # Parallel connection: no wiring performs.
-            # NOTE: Operand flattening must not be done here.
             pass
 
         elif node.op == '..':
@@ -288,7 +286,7 @@ class NetBuilder(ast.NodeVisitor):
                 obj = components.Transductor(vertex.name, inputs, outputs, box)
 
             elif cat == 'T*':
-                obj = components.Transductor(vertex.name, inputs, outputs, box)
+                obj = components.PTransductor(vertex.name, inputs, outputs, box)
 
 
             elif cat == 'I':
