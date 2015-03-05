@@ -40,12 +40,6 @@ class Network:
         self.ready = set()
         self.potential = set()
 
-        ###################################
-
-
-        ptrans = gv.ptrans.pop()
-        ptrans.proliferate(20)
-
     def show(self):
         self.network.show()
 
