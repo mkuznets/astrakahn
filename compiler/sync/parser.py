@@ -12,25 +12,64 @@ precedence = (
     ('right', 'UMINUS'),
 )
 
+configs = None
+config_nodes = {}
 
 def p_sync(p):
     '''
-    sync : SYNCH ID LPAREN input_list BOR output_list RPAREN \
+    sync : SYNCH VID LPAREN input_list BOR output_list RPAREN \
            LBRACE decl_list_opt state_list RBRACE
     '''
-    p[0] = ast.Sync(p[2],
-                    ast.PortList(p[4]),
-                    ast.PortList(p[6]),
-                    p[9],
-                    ast.StateList(p[10]))
+    p[0] = ast.Sync(p[2], ast.PortList(p[4]), ast.PortList(p[6]), p[9],
+                    ast.StateList(p[10]), None)
+
+
+def p_VID(p):
+    '''
+    VID : ID
+    '''
+    if p[1] in configs:
+        term = ast.ID(configs[p[1]])
+        config_nodes[p[1]].append(term)
+    else:
+        term = ast.ID(p[1])
+    p[0] = term
+
+
+def p_VNUMBER(p):
+    '''
+    VNUMBER : ID
+            | NUMBER
+    '''
+    if p[1] in configs:
+        term = ast.NUMBER(configs[p[1]])
+        config_nodes[p[1]].append(term)
+    else:
+        if type(p[1]) is not int:
+            raise ValueError("ID instead of NUMBER, or undeclared macros.")
+        else:
+            term = ast.NUMBER(p[1])
+    p[0] = term
+
+
+def p_VTERM(p):
+    '''
+    VTERM : ID
+    '''
+    if p[1] in configs:
+        term = ast.TERM(configs[p[1]])
+        config_nodes[p[1]].append(term)
+    else:
+        term = ast.ID(p[1])
+    p[0] = term
 
 
 def p_id_list(p):
     '''
-    id_list : ID
-            | id_list COMMA ID
+    id_list : VID
+            | id_list COMMA VID
     '''
-    p[0] = [ast.ID(p[1])] if len(p) == 2 else p[1] + [ast.ID(p[3])]
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
 
 def p_input_list(p):
@@ -43,12 +82,12 @@ def p_input_list(p):
 
 def p_input(p):
     '''
-    input : ID
-          | ID COLON ID
-          | ID COLON NUMBER
+    input : VID
+          | VID COLON VID
+          | VID COLON VNUMBER
     '''
     if len(p) == 4:
-        depth = ast.ID(p[3]) if type(p[3]) == 'str' else ast.NUMBER(p[3])
+        depth = p[3]
     else:
         depth = ast.DepthNone()
 
@@ -65,24 +104,25 @@ def p_output_list(p):
 
 def p_output(p):
     '''
-    output : ID
-           | ID COLON depth_exp
+    output : VID
+           | VID COLON depth_exp
     '''
     p[0] = ast.Port(p[1], (ast.DepthNone() if len(p) == 2 else p[3]))
 
 
 def p_depth_exp(p):
     '''
-    depth_exp : NUMBER
-              | ID
-              | ID PLUS NUMBER
-              | ID MINUS NUMBER
+    depth_exp : VNUMBER
+              | VID
+              | VID PLUS VNUMBER
+              | VID MINUS VNUMBER
     '''
     if len(p) == 2:
-        p[0] = ast.ID(p[1]) if type(p[1]) == 'str' else ast.NUMBER(p[1])
+        p[0] = p[1]
 
     else:
-        p[0] = ast.DepthExp(p[1], p[3] if p[2] == '+' else -p[3])
+        shift.value = p[3].value if p[2] == '+' else -p[3].value
+        p[0] = ast.DepthExp(p[1], shift)
 
 
 def p_decl_list_opt(p):
@@ -108,14 +148,14 @@ def p_decl(p):
          | STATE type id_list SCOLON
     '''
     if len(p) == 4:
-        p[0] = [ast.StoreVar(n.name) for n in p[2]]
+        p[0] = [ast.StoreVar(n) for n in p[2]]
     else:
-        p[0] = [ast.StateVar(n.name, p[2]) for n in p[3]]
+        p[0] = [ast.StateVar(n, p[2]) for n in p[3]]
 
 
 def p_type(p):
     '''
-    type : INT LPAREN NUMBER RPAREN
+    type : INT LPAREN VNUMBER RPAREN
          | ENUM LPAREN id_list RPAREN
     '''
     if p[1] == 'int':
@@ -134,7 +174,7 @@ def p_state_list(p):
 
 def p_state(p):
     '''
-    state : ID LBRACE on_scope elseon_scope_list_opt RBRACE
+    state : VID LBRACE on_scope elseon_scope_list_opt RBRACE
     '''
     p[0] = ast.State(p[1], [p[3]] + p[4])
 
@@ -179,7 +219,7 @@ def p_trans_list(p):
 
 def p_trans_stmt(p):
     '''
-    trans_stmt : ID condition_opt guard_opt action_list
+    trans_stmt : VID condition_opt guard_opt action_list
     '''
     p[0] = ast.Trans(p[1], p[2], p[3], p[4])
 
@@ -199,22 +239,22 @@ def p_condition_opt(p):
 
 def p_cond_segmark(p):
     '''
-    cond_segmark : AT ID
+    cond_segmark : AT VID
     '''
     p[0] = ast.CondSegmark(p[2])
 
 
 def p_cond_datamsg(p):
     '''
-    cond_datamsg : QM ID
+    cond_datamsg : QM VID
                  | LPAREN id_list tail_opt RPAREN
-                 | QM ID LPAREN id_list tail_opt RPAREN
+                 | QM VID LPAREN id_list tail_opt RPAREN
     '''
     if len(p) == 3:
-        p[0] = ast.CondDataMsg(p[2], [], None)
+        p[0] = ast.CondDataMsg(p[2], [], ast.TERM(None))
 
     elif len(p) == 5:
-        p[0] = ast.CondDataMsg(None, p[2], p[3])
+        p[0] = ast.CondDataMsg(ast.TERM(None), p[2], p[3])
 
     elif len(p) == 7:
         p[0] = ast.CondDataMsg(p[2], p[4], p[5])
@@ -222,10 +262,10 @@ def p_cond_datamsg(p):
 
 def p_tail_opt(p):
     '''
-    tail_opt : LOR ID
+    tail_opt : LOR VID
              | empty
     '''
-    p[0] = p[2] if len(p) == 3 else None
+    p[0] = p[2] if len(p) == 3 else ast.TERM(None)
 
 
 def p_cond_else(p):
@@ -241,16 +281,17 @@ def p_guard_opt(p):
               | empty
     '''
     if p[1] == '':
-        code = 'lambda : True'
+        #code = 'lambda : True'
 
-        try:
-            f = eval(code)
-        except SyntaxError as err:
-            print('guard_opt:', err)
-            quit()
+        #try:
+        #    f = eval(code)
+        #except SyntaxError as err:
+        #    print('guard_opt:', err)
+        #    quit()
 
-        f.code = code
-        p[0] = ast.IntExp(f)
+        #f.code = code
+
+        p[0] = ast.IntExp('True', [], {})
     else:
         p[0] = p[2]
 
@@ -280,8 +321,8 @@ def p_assign_list(p):
 
 def p_assign(p):
     '''
-    assign : ID ASSIGN int_exp
-           | ID ASSIGN data_exp
+    assign : VID ASSIGN int_exp
+           | VID ASSIGN data_exp
     '''
     p[0] = ast.Assign(p[1], p[3])
 
@@ -306,9 +347,9 @@ def p_data(p):
 def p_item(p):
     '''
     item : THIS
-         | ID
-         | APOSTR ID
-         | ID COLON rhs
+         | VID
+         | APOSTR VID
+         | VID COLON rhs
     '''
     if len(p) == 2:
         if p[1] == 'this':
@@ -327,10 +368,10 @@ def p_item(p):
 
 def p_rhs(p):
     '''
-    rhs : ID
+    rhs : VID
         | int_exp
     '''
-    p[0] = ast.ID(p[1]) if type(p[1]) == str else p[1]
+    p[0] = p[1]
 
 
 def p_send_stmt_opt(p):
@@ -351,7 +392,7 @@ def p_dispatch_list(p):
 
 def p_dispatch(p):
     '''
-    dispatch : msg_exp TO ID
+    dispatch : msg_exp TO VID
     '''
     p[0] = ast.Send(p[1], p[3])
 
@@ -359,21 +400,21 @@ def p_dispatch(p):
 def p_msg_exp(p):
     '''
     msg_exp : AT int_exp
-            | AT ID
+            | AT VID
             | data_msg
             | NIL
     '''
     if len(p) == 2:
         p[0] = ast.MsgNil() if p[1] == 'nil' else p[1]
     else:
-        depth = ast.ID(p[2]) if type(p[2]) == str else p[2]
+        depth = p[2]
         p[0] = ast.MsgSegmark(depth)
 
 
 def p_data_msg(p):
     '''
     data_msg : data_exp
-             | QM ID data_exp
+             | QM VID data_exp
     '''
     if len(p) == 2:
         p[0] = ast.MsgData(None, p[1])
@@ -398,30 +439,36 @@ def p_empty(p):
 # INTEXP
 
 intexp_args = []
+terms = {}
+terms_cnt = 1
 
 
 def p_int_exp(p):
     '''
     int_exp : LBRACKET intexp_raw RBRACKET
     '''
-    global intexp_args
-    code = 'lambda {}: {}'.format(', '.join(set(intexp_args)), p[2])
+    global intexp_args, terms, terms_cnt
+    #code = 'lambda {}: {}'.format(', '.join(set(intexp_args)), p[2])
 
-    try:
-        f = eval(code)
-    except SyntaxError as err:
-        print('guard_opt:', err, "\n", code)
-        quit()
+    #try:
+    #    f = eval(code)
+    #except SyntaxError as err:
+    #    print('guard_opt:', err, "\n", code)
+    #    quit()
+    #f.code = code
 
-    f.code = code
-    p[0] = ast.IntExp(f)
+    p[0] = ast.IntExp(p[2], intexp_args, terms)
+
+    # Cleanup globals
     intexp_args = []
+    terms = {}
+    terms_cnt = 0
 
 
 def p_intexp_raw(p):
     '''
     intexp_raw : NUMBER
-           | intexp_id
+           | exp_term
            | LPAREN intexp_raw RPAREN
            | intexp_raw PLUS intexp_raw
            | intexp_raw MINUS intexp_raw
@@ -444,8 +491,15 @@ def p_intexp_raw(p):
            | intexp_raw LAND intexp_raw
            | intexp_raw LOR intexp_raw
     '''
+    global terms, terms_cnt
+
     if len(p) == 2:
-        p[0] = p[1]
+        t = ('n%d' if type(p[1]) is int else 't%d') % terms_cnt
+        terms_cnt += 1
+        # Ugly hack. Need to make a separate rule for wrapping a number.
+        terms[t] = ast.NUMBER(p[1]) if type(p[1]) is int else p[1]
+        p[0] = '{%s}' % t
+
     else:
         if p[2] == '&&': p[2] = ' and '
         if p[2] == '||': p[2] = ' or '
@@ -454,12 +508,12 @@ def p_intexp_raw(p):
         p[0] = ''.join(str(t) for t in list(p)[1:])
 
 
-def p_intexp_id(p):
+def p_exp_term(p):
     '''
-    intexp_id : ID
+    exp_term : VTERM
     '''
     global intexp_args
-    intexp_args.append(p[1])
+    intexp_args.append(p[1].value)
     p[0] = p[1]
 
 ###############################

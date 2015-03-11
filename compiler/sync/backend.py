@@ -19,7 +19,7 @@ class SyncBuilder(ast.NodeVisitor):
         scope = components.Scope(children['decls'] + self.consts)
 
         del children['decls']
-        return components.Sync(name=node.name, scope=scope, **children)
+        return components.Sync(scope=scope, **children)
 
     #--------------------------------------------------
 
@@ -35,10 +35,10 @@ class SyncBuilder(ast.NodeVisitor):
         return children['ports']
 
     def visit_Port(self, node, children):
-        return node.name
+        return children['name']
 
-    def visit_DepthExp(self, node, _):
-        return (node.depth, node.shift)
+    def visit_DepthExp(self, node, children):
+        return (children['depth'], children['shift'])
 
     def visit_DepthNone(self, node, _):
         return None
@@ -48,8 +48,8 @@ class SyncBuilder(ast.NodeVisitor):
     def visit_DeclList(self, node, children):
         return children['decls']
 
-    def visit_StoreVar(self, node, _):
-        return components.StoreVar(node.name)
+    def visit_StoreVar(self, node, children):
+        return components.StoreVar(children['name'])
 
     def visit_StateVar(self, node, children):
         type, arg = children['type']
@@ -57,12 +57,12 @@ class SyncBuilder(ast.NodeVisitor):
         assert(type == 'int' or type == 'enum')
 
         if type == 'int':
-            return components.StateInt(node.name, arg)
+            return components.StateInt(children['name'], arg)
         elif type == 'enum':
-            return components.StateEnum(node.name, arg)
+            return components.StateEnum(children['name'], arg)
 
-    def visit_IntType(self, node, _):
-        return ('int', node.size)
+    def visit_IntType(self, node, children):
+        return ('int', children['size'])
 
     def visit_EnumType(self, node, children):
 
@@ -88,24 +88,25 @@ class SyncBuilder(ast.NodeVisitor):
 
         handlers = [components.PortHandler(p, t) for p, t in byport.items()]
 
-        return components.State(node.name, handlers)
+        return components.State(children['name'], handlers)
 
     def visit_TransOrder(self, node, children):
         return children['trans_stmt']
 
     def visit_Trans(self, node, children):
-        pid = self.input_index[node.port]
+        pid = self.input_index[children['port']]
 
         return components.Transition(pid, children['condition'],
                                        children['guard'], children['actions'])
 
     #--------------------------------------------------
 
-    def visit_CondSegmark(self, node, _):
-        return ('CondSegmark', node.depth)
+    def visit_CondSegmark(self, node, children):
+        return ('CondSegmark', children['depth'])
 
     def visit_CondDataMsg(self, node, children):
-        return ('CondDataMsg', node.choice, children['labels'], node.tail)
+        return ('CondDataMsg', children['choice'], children['labels'],
+                children['tail'])
 
     def visit_CondEmpty(self, node, _):
         return ('CondEmpty', )
@@ -116,10 +117,10 @@ class SyncBuilder(ast.NodeVisitor):
     #--------------------------------------------------
 
     def visit_Assign(self, node, children):
-        return ('Assign', node.lhs, children['rhs'])
+        return ('Assign', children['lhs'], children['rhs'])
 
     def visit_Send(self, node, children):
-        pid = self.output_index[node.port]
+        pid = self.output_index[children['port']]
         return ('Send', children['msg'], pid)
 
     def visit_Goto(self, node, children):
@@ -133,11 +134,11 @@ class SyncBuilder(ast.NodeVisitor):
     def visit_ItemThis(self, node, _):
         return ('ItemThis', )
 
-    def visit_ItemVar(self, node, _):
-        return ('ItemVar', node.name)
+    def visit_ItemVar(self, node, children):
+        return ('ItemVar', children['name'])
 
-    def visit_ItemExpand(self, node, _):
-        return ('ItemPair', node.name, ('ID', node.name))
+    def visit_ItemExpand(self, node, children):
+        return ('ItemPair', children['name'], ('ID', children['name']))
 
     def visit_ItemPair(self, node, children):
         if type(children['value']) == str:
@@ -145,7 +146,7 @@ class SyncBuilder(ast.NodeVisitor):
         else:
             rhs = children['value']
 
-        return ('ItemPair', node.label, rhs)
+        return ('ItemPair', children['label'], rhs)
 
     #--------------------------------------------------
 
@@ -167,10 +168,27 @@ class SyncBuilder(ast.NodeVisitor):
     #--------------------------------------------------
 
     def visit_IntExp(self, node, _):
-        return ('IntExp', node.exp)
+
+        values = {key: term.value for key, term in node.terms.items()}
+        args = [term for term in values.values() if type(term) is str]
+
+        code = 'lambda %s: %s' % (', '.join(args),
+                                  node.exp.format(**values))
+
+        try:
+            f = eval(code)
+        except SyntaxError as err:
+            print('guard_opt:', err, "\n", code)
+            quit()
+        f.code = code
+
+        return ('IntExp', f)
 
     def visit_ID(self, node, _):
-        return node.name
+        return node.value
+
+    def visit_TERM(self, node, _):
+        return node.value
 
     def visit_NUMBER(self, node, _):
         return node.value
@@ -178,4 +196,4 @@ class SyncBuilder(ast.NodeVisitor):
     #--------------------------------------------------
 
     def generic_visit(self, node, _):
-        print(node)
+        print('GV:', node)

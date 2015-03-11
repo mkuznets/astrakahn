@@ -11,6 +11,7 @@ end
 #------------------------------------------------------------------------------
 
 s_cpu = '''
+@SIZE = 10
 synch cpu (instr, load, mem, c | stdout, load, mem, c)
 {
   store mem;

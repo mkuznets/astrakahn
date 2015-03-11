@@ -102,23 +102,25 @@ class NodeVisitor(object):
 
 
 class Sync(Node):
-    def __init__(self, name, inputs, outputs, decls, states, coord=None):
+    def __init__(self, name, inputs, outputs, decls, states, configs, coord=None):
         self.name = name
         self.inputs = inputs
         self.outputs = outputs
         self.decls = decls
         self.states = states
+        self.configs = configs
         self.coord = coord
 
     def children(self, expand=False):
         nodelist = []
+        if self.name is not None: nodelist.append(("name", self.name))
         if self.inputs is not None: nodelist.append(("inputs", self.inputs))
         if self.outputs is not None: nodelist.append(("outputs", self.outputs))
         if self.decls is not None: nodelist.append(("decls", self.decls))
         if self.states is not None: nodelist.append(("states", self.states))
         return tuple(nodelist)
 
-    attr_names = ('name',)
+    attr_names = ('configs',)
 
 class PortList(Node):
     def __init__(self, ports, coord=None):
@@ -144,10 +146,11 @@ class Port(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.name is not None: nodelist.append(("name", self.name))
         if self.depth_exp is not None: nodelist.append(("depth_exp", self.depth_exp))
         return tuple(nodelist)
 
-    attr_names = ('name',)
+    attr_names = ()
 
 class DepthExp(Node):
     def __init__(self, depth, shift, coord=None):
@@ -157,9 +160,11 @@ class DepthExp(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.depth is not None: nodelist.append(("depth", self.depth))
+        if self.shift is not None: nodelist.append(("shift", self.shift))
         return tuple(nodelist)
 
-    attr_names = ('depth','shift',)
+    attr_names = ()
 
 class DepthNone(Node):
     def __init__(self, coord=None):
@@ -193,9 +198,10 @@ class StoreVar(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.name is not None: nodelist.append(("name", self.name))
         return tuple(nodelist)
 
-    attr_names = ('name',)
+    attr_names = ()
 
 class StateVar(Node):
     def __init__(self, name, type, coord=None):
@@ -205,10 +211,11 @@ class StateVar(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.name is not None: nodelist.append(("name", self.name))
         if self.type is not None: nodelist.append(("type", self.type))
         return tuple(nodelist)
 
-    attr_names = ('name',)
+    attr_names = ()
 
 class IntType(Node):
     def __init__(self, size, coord=None):
@@ -217,9 +224,10 @@ class IntType(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.size is not None: nodelist.append(("size", self.size))
         return tuple(nodelist)
 
-    attr_names = ('size',)
+    attr_names = ()
 
 class EnumType(Node):
     def __init__(self, labels, coord=None):
@@ -261,6 +269,7 @@ class State(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.name is not None: nodelist.append(("name", self.name))
         if expand:
             for i, child in enumerate(self.trans_orders or []):
                 nodelist.append(("trans_orders[%d]" % i, child))
@@ -268,7 +277,7 @@ class State(Node):
             nodelist.append(("trans_orders", list(self.trans_orders) or []))
         return tuple(nodelist)
 
-    attr_names = ('name',)
+    attr_names = ()
 
 class TransOrder(Node):
     def __init__(self, trans_stmt, coord=None):
@@ -296,6 +305,7 @@ class Trans(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.port is not None: nodelist.append(("port", self.port))
         if self.condition is not None: nodelist.append(("condition", self.condition))
         if self.guard is not None: nodelist.append(("guard", self.guard))
         if expand:
@@ -305,7 +315,7 @@ class Trans(Node):
             nodelist.append(("actions", list(self.actions) or []))
         return tuple(nodelist)
 
-    attr_names = ('port',)
+    attr_names = ()
 
 class CondSegmark(Node):
     def __init__(self, depth, coord=None):
@@ -314,9 +324,10 @@ class CondSegmark(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.depth is not None: nodelist.append(("depth", self.depth))
         return tuple(nodelist)
 
-    attr_names = ('depth',)
+    attr_names = ()
 
 class CondDataMsg(Node):
     def __init__(self, choice, labels, tail, coord=None):
@@ -327,6 +338,8 @@ class CondDataMsg(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.choice is not None: nodelist.append(("choice", self.choice))
+        if self.tail is not None: nodelist.append(("tail", self.tail))
         if expand:
             for i, child in enumerate(self.labels or []):
                 nodelist.append(("labels[%d]" % i, child))
@@ -334,7 +347,7 @@ class CondDataMsg(Node):
             nodelist.append(("labels", list(self.labels) or []))
         return tuple(nodelist)
 
-    attr_names = ('choice','tail',)
+    attr_names = ()
 
 class CondEmpty(Node):
     def __init__(self, coord=None):
@@ -362,10 +375,11 @@ class Assign(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.lhs is not None: nodelist.append(("lhs", self.lhs))
         if self.rhs is not None: nodelist.append(("rhs", self.rhs))
         return tuple(nodelist)
 
-    attr_names = ('lhs',)
+    attr_names = ()
 
 class DataExp(Node):
     def __init__(self, items, coord=None):
@@ -399,9 +413,10 @@ class ItemVar(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.name is not None: nodelist.append(("name", self.name))
         return tuple(nodelist)
 
-    attr_names = ('name',)
+    attr_names = ()
 
 class ItemExpand(Node):
     def __init__(self, name, coord=None):
@@ -410,9 +425,10 @@ class ItemExpand(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.name is not None: nodelist.append(("name", self.name))
         return tuple(nodelist)
 
-    attr_names = ('name',)
+    attr_names = ()
 
 class ItemPair(Node):
     def __init__(self, label, value, coord=None):
@@ -422,10 +438,11 @@ class ItemPair(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.label is not None: nodelist.append(("label", self.label))
         if self.value is not None: nodelist.append(("value", self.value))
         return tuple(nodelist)
 
-    attr_names = ('label',)
+    attr_names = ()
 
 class Send(Node):
     def __init__(self, msg, port, coord=None):
@@ -436,9 +453,10 @@ class Send(Node):
     def children(self, expand=False):
         nodelist = []
         if self.msg is not None: nodelist.append(("msg", self.msg))
+        if self.port is not None: nodelist.append(("port", self.port))
         return tuple(nodelist)
 
-    attr_names = ('port',)
+    attr_names = ()
 
 class MsgSegmark(Node):
     def __init__(self, depth, coord=None):
@@ -460,10 +478,11 @@ class MsgData(Node):
 
     def children(self, expand=False):
         nodelist = []
+        if self.choice is not None: nodelist.append(("choice", self.choice))
         if self.data_exp is not None: nodelist.append(("data_exp", self.data_exp))
         return tuple(nodelist)
 
-    attr_names = ('choice',)
+    attr_names = ()
 
 class MsgNil(Node):
     def __init__(self, coord=None):
@@ -491,15 +510,15 @@ class Goto(Node):
     attr_names = ()
 
 class ID(Node):
-    def __init__(self, name, coord=None):
-        self.name = name
+    def __init__(self, value, coord=None):
+        self.value = value
         self.coord = coord
 
     def children(self, expand=False):
         nodelist = []
         return tuple(nodelist)
 
-    attr_names = ('name',)
+    attr_names = ('value',)
 
 class NUMBER(Node):
     def __init__(self, value, coord=None):
@@ -512,14 +531,27 @@ class NUMBER(Node):
 
     attr_names = ('value',)
 
-class IntExp(Node):
-    def __init__(self, exp, coord=None):
-        self.exp = exp
+class TERM(Node):
+    def __init__(self, value, coord=None):
+        self.value = value
         self.coord = coord
 
     def children(self, expand=False):
         nodelist = []
         return tuple(nodelist)
 
-    attr_names = ('exp',)
+    attr_names = ('value',)
+
+class IntExp(Node):
+    def __init__(self, exp, args, terms, coord=None):
+        self.exp = exp
+        self.args = args
+        self.terms = terms
+        self.coord = coord
+
+    def children(self, expand=False):
+        nodelist = []
+        return tuple(nodelist)
+
+    attr_names = ('exp','args','terms',)
 

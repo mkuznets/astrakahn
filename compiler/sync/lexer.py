@@ -4,7 +4,7 @@ keywords = ['SYNCH', 'STORE', 'STATE', 'INT', 'ENUM', 'ON', 'ELSEON', 'ELSE',
             'SET', 'SEND', 'GOTO', 'THIS', 'NIL']
 
 tokens = keywords + [
-    'ID', 'NUMBER', 'SPACES', 'NEWLINE', 'LBRACE', 'RBRACE', 'LPAREN', 'RPAREN', 'LBRACKET',
+    'ID', 'NUMBER', 'LBRACE', 'RBRACE', 'LPAREN', 'RPAREN', 'LBRACKET',
     'RBRACKET', 'COLON', 'PLUS', 'MINUS', 'MULT', 'DIVIDE', 'MOD', 'SHL',
     'SHR', 'LE', 'GE', 'GEQ', 'LEQ', 'EQ', 'NEQ', 'NOT', 'BAND', 'BOR', 'BXOR',
     'LAND', 'LOR', 'COMMA', 'DOT', 'AT', 'QM', 'TO', 'ASSIGN', 'SCOLON',
@@ -67,59 +67,17 @@ def t_cppcomment(t):
     t.lexer.lineno += t.value.count('\n')
     #t.lexer.skip(1)
 
-def t_NEWLINE(t):
-    r'\n'
-    t.lexer.lineno += t.value.count("\n")
-    return t
-
-def t_SPACES(t):
-    r'[ \t\v\f]+'
-    return t
-
 def t_error(t):
     print("Illegal character '%s'" % t.value[0])
     t.lexer.skip(1)
 
 ###############################################################################
 
+t_ignore = " \t"
 
-def disable_ws():
-    global tokens
-
-    if 't_SPACES' in globals():
-        del globals()['t_SPACES']
-        del globals()['t_NEWLINE']
-        tokens.remove('SPACES')
-        tokens.remove('NEWLINE')
-
-        globals()['t_ignore'] = " \t"
-
-        def nl(t):
-            r'\n'
-            t.lexer.lineno += t.value.count("\n")
-
-        globals()['t_NEWLINE'] = nl
-
-def enable_ws():
-    global tokens
-
-    def nl(t):
-        r'\n'
-        t.lexer.lineno += t.value.count("\n")
-        return t
-
-    def sp(t):
-        r'[ \t\v\f]+'
-        return t
-
-    tokens.append('SPACES')
-    tokens.append('NEWLINE')
-
-    del globals()['t_ignore']
-
-    globals()['t_NEWLINE'] = nl
-    globals()['t_SPACES'] = sp
-
+def t_NEWLINE(t):
+    r'\n'
+    t.lexer.lineno += t.value.count("\n")
 
 import ply.lex as lex
 
