@@ -86,10 +86,17 @@ def p_decl(p):
     '''
     decl : net
          | synchroniser
+         | synchtab
          | morphism
     '''
     p[0] = p[1] if type(p[1]) == list else [p[1]]
 
+
+def p_synchtab(p):
+    '''
+    synchtab : TAB LBRACKET id_list RBRACKET synchroniser
+    '''
+    p[0] = ast.SynchTab(p[3], p[5])
 
 def p_synchroniser(p):
     '''

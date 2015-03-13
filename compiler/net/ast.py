@@ -154,6 +154,19 @@ class DeclList(Node):
 
     attr_names = ()
 
+class SynchTab(Node):
+    def __init__(self, labels, sync, coord=None):
+        self.labels = labels
+        self.sync = sync
+        self.coord = coord
+
+    def children(self, expand=False):
+        nodelist = []
+        if self.sync is not None: nodelist.append(("sync", self.sync))
+        return tuple(nodelist)
+
+    attr_names = ('labels',)
+
 class Synchroniser(Node):
     def __init__(self, name, macros, ast, coord=None):
         self.name = name
