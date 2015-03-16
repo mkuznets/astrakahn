@@ -36,10 +36,9 @@ class NetworkVisitor:
             import components
             if isinstance(node, components.PTransductor):
                 self.ptrans.add(node)
-        else:
+
+        if node.executable:
             self.vertices.update(c)
-
-
 
     def traverse(self, node):
 

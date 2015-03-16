@@ -127,6 +127,12 @@ class Node:
         '''
         Returns True if there's a msg in at least one channel from the range.
         '''
+
+        # In some cases (e.g. for Mergers) the vertex may not have any input
+        # ports. Apparently, such vertices cannot be `ready'.
+        if not self.inputs:
+            return False
+
         if rng is None:
             rng = self.inputs.keys()
 
@@ -225,7 +231,7 @@ class Node:
     #--------------------------------------------------------------------------
 
     def _add_ports(self, n_ports, ports):
-        port_id = max(ports) + 1
+        port_id = (max(ports) + 1) if ports else 0
         port_names = {i: '_%s' % i for i in range(port_id, port_id+n_ports)}
 
         for port_id, name in port_names.items():
@@ -336,6 +342,7 @@ class Net(Node):
             self.streams[sid] = Stream(dst=(-1, i))
 
         self._sid = 1
+        self.fire_nodes = set()
 
     #--------------------------------------------------------------------------
 
@@ -810,6 +817,107 @@ class PTransductor(Net):
         # Post-condition: transductor counters must be set correctly.
         assert(self.n_active <= self.n_total)
 
+
+
+#--------------------------------------------------------------------------
+
+class SynchTable(Net):
+
+    def __init__(self, name, inputs, outputs, sync_ast, labels):
+        super(SynchTable, self).__init__(name, inputs, outputs)
+        self.executable = True
+
+        self.ready_port = None
+
+        self.sync_ast = sync_ast
+        self.labels = labels
+
+        self.syncs = {}
+
+        self.mergers = []
+
+        for pid, port in self.outputs.items():
+            mrg = Merger('m%d' % pid, [], [port.name])
+
+            mrgid = self.add_node(mrg)
+            self.mount_output_port(pid, (mrgid, 0))
+
+            self.mergers.append(mrgid)
+
+    def is_ready(self):
+
+        input_ports = self.get_ready_inputs()
+
+        for port_id in input_ports:
+            ready = True
+
+            for sync in self.syncs.values():
+                channel = sync._get_input_channel(port_id)
+
+                if not channel.is_space_for(1):
+                    ready = False
+                    break
+
+            if ready:
+                self.ready_port = port_id
+                return (True, True)
+
+        return (False, False)
+
+    def fetch(self):
+        m = self.get(self.ready_port)
+        return [m]
+
+    def run(self, msgs):
+        msg = msgs[0]
+
+        label_values = []
+
+        if self.labels not in msg:
+            raise RuntimeError('Label %s is not found in the message %s' %
+                               (label, msg))
+
+        st = tuple(msg[label] for label in self.labels)
+
+        # Spawn new synchroniser if needed.
+        if st not in self.syncs:
+            from compiler.sync.backend import SyncBuilder
+
+            # Set the configurations.
+            for name, value in zip(self.labels, st):
+                for c in self.sync_ast.configs[name]:
+                    c.value = value
+
+            sb = SyncBuilder()
+            obj = sb.traverse(self.sync_ast)
+
+            syncid = self.add_node(obj)
+
+            # Associate sync's input ports with fictitious streams.
+            for pid, port in obj.inputs.items():
+                sid = self._alloc_new_stream()
+                port.sid = sid
+
+            # Connect sync's output ports to mergers.
+            for i, mid in enumerate(self.mergers):
+                # Add new ports to each Merger
+                merger = self.get_node(mid)
+                (port, *_), _ = merger.change_ports(1, 0)
+                self.add_wire((syncid, i), (mid, port))
+
+                self.syncs[st] = obj
+
+                self.update_channels(mid)
+
+            self.update_channels(syncid)
+
+        self.show()
+
+        # Route the message to corresponding sync.
+
+        sync = self.syncs[st]
+        self.fire_nodes.add(sync.path)
+        sync.put(self.ready_port, msg)
 
 
 #--------------------------------------------------------------------------

@@ -79,7 +79,8 @@ class NetBuilder(ast.NodeVisitor):
                 obj = self.compile_sync(decl.ast)
 
             elif type == 'synchtab':
-                obj = self.compile_synchtab(decl.ast)
+                labels = scope[node.name][3]
+                obj = self.compile_synchtab(node.name, decl.ast, labels)
 
             elif type == 'core':
                 obj = self.compile_box(decl, node)
@@ -215,9 +216,13 @@ class NetBuilder(ast.NodeVisitor):
         obj = sb.traverse(sync_ast)
         return obj
 
-    def compile_synchtab(self, sync_ast):
-        # Here goes runtime component building.
-        pass
+    def compile_synchtab(self, name, sync_ast, labels):
+        # Get port names
+        inputs = [p.name.value for p in sync_ast.inputs.ports]
+        outputs = [p.name.value for p in sync_ast.outputs.ports]
+
+        obj = components.SynchTable(name, inputs, outputs, sync_ast, labels)
+        return obj
 
     def compile_net(self, net, vertex=None):
         assert(type(net) == ast.Net)

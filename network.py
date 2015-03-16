@@ -260,4 +260,12 @@ class Network:
 
             self.potential.add(path + (dst_id,))
 
+            #--------------
+
+        # TODO: fix the ugly hack for nets.
+        if hasattr(vertex, 'fire_nodes'):
+            self.potential.update(vertex.fire_nodes)
+            vertex.fire_nodes.clear()
+
+
         vertex.departures.clear()

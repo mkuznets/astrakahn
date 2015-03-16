@@ -27,9 +27,12 @@ synch foo (in1, in2 | out1, out2)
 
 import communication as comm
 
-__input__ = {'in1':
-             [comm.Record({'n': 0, 'a': 100})]
-             }
+__input__ = {'in1': [
+    comm.Record({'n': 0, 'inc': 10, 'a': 100}),
+    comm.Record({'n': 0, 'inc': 12, 'a': 100}),
+    comm.Record({'n': 0, 'inc': 109, 'a': 100}),
+    comm.Record({'n': 0, 'inc': 10, 'a': 100}),
+]}
 
 #------------------------------------------------------------------------------
 

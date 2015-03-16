@@ -168,6 +168,9 @@ class Record(DataMessage):
     def __contains__(self, pattern):
         return True if set(pattern) <= self.content.keys() else False
 
+    def __getitem__(self, index):
+        return self.content[index]
+
 class Empty(Exception):
     def __init__(self, value):
         self.value = value
