@@ -4,6 +4,7 @@ from compiler.sync.backend import SyncBuilder
 def build_guard(n_out):
 
     s___R__ = '''
+    @NOUT
     synch Guard (in, __fb__ | r, __sl__)
     {
       state int(32) seg_len;

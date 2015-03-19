@@ -243,6 +243,9 @@ class Network:
             path = vertex.path[:-1]
             parent_net = self.network.get_node_by_path(path)
 
+            # Search the destination node "bottom-up": when a node send a
+            # message out of its net, we need to bypass "virtual" streams to
+            # get a "real" node.
             while True:
                 stream = parent_net.streams[v.outputs[dst_port].sid]
                 dst_id, dst_port = stream.dst
@@ -257,6 +260,20 @@ class Network:
                     v = parent_net.get_node(parent_id)
                 else:
                     break
+
+            # Found node is not necesserily executable, in which case we need
+            # to go into it and find an executable node.
+            while True:
+                dst_node = parent_net.get_node(dst_id)
+
+                if dst_node.executable:
+                    break
+                else:
+                    path += (dst_id,)
+                    sid = dst_node._get_ext_stream_input(dst_port)
+                    stream = dst_node.streams[sid]
+                    dst_id, dst_port = stream.dst
+                    parent_net = dst_node
 
             self.potential.add(path + (dst_id,))
 

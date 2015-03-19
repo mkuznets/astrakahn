@@ -41,6 +41,7 @@ def parse(code, macros={}):
 
     # Read parameters from the header.
     for i, line in enumerate(code_lines):
+        line = line.strip()
         if line.startswith('@'):
             match = re.findall("\@([A-Za-z_][\w_]*)(?:(?:\s*)\=(?:\s*)([\w\d]+))?$", line)
             if not match:
@@ -51,7 +52,7 @@ def parse(code, macros={}):
                 if type(value) == str and value.isdigit():
                     value = int(value)
 
-                configs[name] = value
+                configs[name] = macros.get(name, value)
 
         elif line.startswith('synch'):
             code = "\n".join(code_lines[i:])
