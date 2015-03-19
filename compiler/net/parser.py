@@ -115,29 +115,19 @@ def p_macros_opt(p):
 
 def p_morphism(p):
     '''
-    morphism : MORPH LPAREN ID RPAREN LBRACE morph_body RBRACE
+    morphism : MORPH LBRACE morph_body RBRACE
     '''
-    p[0] = [ast.Morphism(p[3], *m) for m in p[6]]
+    p[0] = [ast.Morphism(*m) for m in p[3]]
 
 
 def p_morph_body(p):
     '''
     morph_body : morph_list
-               | morph_list WHERE override_list
     '''
-
-    override = {}
-    if len(p) == 4:
-        # Overrine
-        for ovr in p[3]:
-            override[ovr.join] = override.get(ovr.join, []) + [ovr]
-            override[ovr.split] = override.get(ovr.split, []) + [ovr]
 
     morph_body = []
     for m in p[1]:
-        ovr = list(set(override.get(m[0], [])) | set(override.get(m[2], [])))
-        morph_body.append(m + (ovr,))
-
+        morph_body.append(m)
 
     p[0] = morph_body
 
@@ -227,20 +217,6 @@ def p_split(p):
 def p_join(p):
     '''join : ID'''
     p[0] = p[1]
-
-
-def p_override_list(p):
-    '''
-    override_list : override
-                  | override_list COMMA override
-    '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_override(p):
-    '''override : join SERIAL split EQUAL ID'''
-    p[0] = ast.Override(p[1], p[3], p[5])
-
 
 def p_wiring(p):
     '''

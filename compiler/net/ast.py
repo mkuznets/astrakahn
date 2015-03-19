@@ -181,37 +181,17 @@ class Synchroniser(Node):
     attr_names = ('name','macros','ast',)
 
 class Morphism(Node):
-    def __init__(self, trigger, split, map, join, override_list, coord=None):
-        self.trigger = trigger
+    def __init__(self, split, map, join, coord=None):
         self.split = split
         self.map = map
         self.join = join
-        self.override_list = override_list
-        self.coord = coord
-
-    def children(self, expand=False):
-        nodelist = []
-        if expand:
-            for i, child in enumerate(self.override_list or []):
-                nodelist.append(("override_list[%d]" % i, child))
-        else:
-            nodelist.append(("override_list", list(self.override_list) or []))
-        return tuple(nodelist)
-
-    attr_names = ('trigger','split','map','join',)
-
-class Override(Node):
-    def __init__(self, join, split, sync, coord=None):
-        self.join = join
-        self.split = split
-        self.sync = sync
         self.coord = coord
 
     def children(self, expand=False):
         nodelist = []
         return tuple(nodelist)
 
-    attr_names = ('join','split','sync',)
+    attr_names = ('split','map','join',)
 
 class BinaryOp(Node):
     def __init__(self, op, left, right, coord=None):
