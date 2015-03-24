@@ -6,7 +6,7 @@ from . import ast
 
 class SyncBuilder(ast.NodeVisitor):
 
-    def __init__(self, inputs, outputs):
+    def __init__(self, inputs={}, outputs={}):
 
         self.input_ports = inputs
         self.output_ports = outputs
@@ -24,7 +24,9 @@ class SyncBuilder(ast.NodeVisitor):
         name = children['name']
         states = children['states']
 
-        return components.Sync(name, self.input_ports, self.output_ports,
+
+        return components.Sync(name, self.input_ports or children['inputs'],
+                               self.output_ports or children['outputs'],
                                scope, states)
 
     #--------------------------------------------------
