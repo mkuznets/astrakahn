@@ -246,15 +246,10 @@ def p_wiring_exp(p):
 
 def p_vertex(p):
     '''
-    vertex : vertex_name
-           | LE renaming_opt VBAR vertex_name_or_merge VBAR renaming_opt GE
+    vertex : input_renaming_opt vertex_name_or_merge output_renaming_opt
     '''
 
-    if len(p) == 2:
-        p[0] = ast.Vertex(inputs={}, outputs={}, **p[1])
-
-    else:
-        p[0] = ast.Vertex(inputs=p[2], outputs=p[6], **p[4])
+    p[0] = ast.Vertex(inputs=p[1], outputs=p[3], **p[2])
 
 
 def p_vertex_name_or_merge(p):
@@ -277,13 +272,29 @@ def p_vertex_name(p):
             'category': p[1] if len(p) == 4 else None}
 
 
-def p_renaming_opt(p):
+def p_input_renaming_opt(p):
     '''
-    renaming_opt : id_list
-                 | kwarg_list
-                 | empty
+    input_renaming_opt : LE renaming VBAR
+                       | empty
     '''
-    p[0] = p[1] or None
+    p[0] = {} if len(p) == 2 else p[2]
+
+
+def p_output_renaming_opt(p):
+    '''
+    output_renaming_opt : VBAR renaming GE
+                       | empty
+    '''
+    p[0] = {} if len(p) == 2 else p[2]
+
+
+def p_renaming(p):
+    '''
+    renaming : id_list
+             | kwarg_list
+             | empty
+    '''
+    p[0] = p[1] or {}
 
 
 #------------------------------------------------------------------------------

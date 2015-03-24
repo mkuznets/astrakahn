@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
 '''
-net Factorial (_1, __1 | _1)
+net Factorial (in, _in | out, _out)
 morph { Induce / Map / Reduce }
 synch Guard
 connect
-  EqualSplit .. <_1, nfrag|Guard|_1> .. <_1,__1|~|_1> .. Induce .. Map .. Reduce
+  <in|EqualSplit .. <_1, nfrag|Guard|_1> .. <_1,_in|~|_1> .. Induce .. Map .. Reduce|out>
   #<in|Test|init,n> .. <n|Gen|terms,init> .. <init,terms|Reduce|out>
 end
 '''
