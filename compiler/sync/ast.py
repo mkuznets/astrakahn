@@ -204,15 +204,17 @@ class StoreVar(Node):
     attr_names = ()
 
 class StateVar(Node):
-    def __init__(self, name, type, coord=None):
+    def __init__(self, name, type, value, coord=None):
         self.name = name
         self.type = type
+        self.value = value
         self.coord = coord
 
     def children(self, expand=False):
         nodelist = []
         if self.name is not None: nodelist.append(("name", self.name))
         if self.type is not None: nodelist.append(("type", self.type))
+        if self.value is not None: nodelist.append(("value", self.value))
         return tuple(nodelist)
 
     attr_names = ()

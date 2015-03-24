@@ -145,12 +145,12 @@ def p_decl_list(p):
 def p_decl(p):
     '''
     decl : STORE id_list SCOLON
-         | STATE type id_list SCOLON
+         | STATE type statevar_list SCOLON
     '''
     if len(p) == 4:
         p[0] = [ast.StoreVar(n) for n in p[2]]
     else:
-        p[0] = [ast.StateVar(n, p[2]) for n in p[3]]
+        p[0] = [ast.StateVar(n[0], p[2], n[1]) for n in p[3]]
 
 
 def p_type(p):
@@ -162,6 +162,22 @@ def p_type(p):
         p[0] = ast.IntType(p[3])
     else:
         p[0] = ast.EnumType(p[3])
+
+
+def p_statevar_list(p):
+    '''
+    statevar_list : statevar
+                  | statevar_list COMMA statevar
+    '''
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
+
+
+def p_statevar(p):
+    '''
+    statevar : ID
+             | ID ASSIGN VNUMBER
+    '''
+    p[0] = (ast.ID(p[1]), ast.NUMBER(0) if len(p) == 2 else p[3])
 
 
 def p_state_list(p):

@@ -43,19 +43,27 @@ class NetBuilder(ast.NodeVisitor):
 
     #--------------------------------------------------------------------------
 
-    def visit_SynchTab(self, node, children):
-        return ('synchtab', node.sync, node.sync.name, node.labels)
-
-    def visit_Synchroniser(self, node, children):
-        return ('sync', node, node.name)
-
-    def visit_Morphism(self, node, children):
+    def visit_SynchTab(self, node, _):
         'final'
-        return ('morph', node, node.map)
+        inputs = [p.name.value for p in node.sync.inputs.ports]
+        outputs = [p.name.value for p in node.sync.outputs.ports]
+        return ('synchtab', node.sync.name, node, inputs, outputs)
 
-    def visit_Net(self, node, children):
+    def visit_Synchroniser(self, node, _):
+        inputs = [p.name.value for p in node.ast.inputs.ports]
+        outputs = [p.name.value for p in node.ast.outputs.ports]
         'final'
-        return ('net', node, node.name)
+        return ('sync', node.name, node, inputs, outputs)
+
+    def visit_Morphism(self, node, _):
+        'final'
+        return ('morph', node.map, node, ['_1'], ['_1'])
+
+    def visit_Net(self, node, _):
+        'final'
+        inputs = self.traverse(node.inputs)
+        outputs = self.traverse(node.outputs)
+        return ('net', node.name, node, inputs, outputs)
 
     def visit_DeclList(self, node, children):
         return children['decls']
@@ -67,31 +75,43 @@ class NetBuilder(ast.NodeVisitor):
         obj = None
 
         if node.name in scope:
-            type, decl, *_ = scope[node.name]
+            decl = scope[node.name]
 
-            if type == 'net':
-                obj = self.compile_net(decl, node)
+            # Port names are computed in compile_box()
+            if decl[0] == 'core':
+                obj = self.compile_box(decl[1], node)
 
-            elif type == 'morph':
-                raise NotImplementedError('¯\_(ツ)_/¯')
-
-            elif type == 'sync':
-                obj = self.compile_sync(decl.ast)
-
-            elif type == 'synchtab':
-                labels = scope[node.name][3]
-                obj = self.compile_synchtab(node.name, decl.ast, labels)
-
-            elif type == 'core':
-                obj = self.compile_box(decl, node)
-
+            # Port names are computed right here.
             else:
-                raise ValueError('Node %s is of unknown type: `%s\''
-                                 % (node.name, type))
+                n_in, n_out = len(decl[3]), len(decl[4])
+
+                # Rename ports.
+                inputs = self._rename_ports(n_in, node.inputs, decl[3])
+                outputs = self._rename_ports(n_out, node.outputs, decl[4])
+
+                if decl[0] == 'net':
+                    obj = self.compile_net(decl[2], inputs, outputs)
+
+                elif decl[0] == 'morph':
+                    raise NotImplementedError('¯\_(ツ)_/¯')
+
+                elif decl[0] == 'sync':
+                    obj = self.compile_sync(decl[2], inputs, outputs)
+
+                elif decl[0] == 'synchtab':
+                    labels = scope[node.name][3]
+                    obj = self.compile_synchtab(node.name, decl.ast, labels)
+
+                else:
+                    raise ValueError('Node %s is of unknown type: `%s\''
+                                     % (node.name, type))
 
         elif node.name == '~':
-            obj = self.compile_merger(list(node.inputs.values()),
-                                      list(node.outputs.values()))
+            if type(node.inputs) is not list or type(node.outputs) is not list:
+                raise RuntimeError('Merger requires a list of ports, not'
+                                   'key-value pairs.')
+
+            obj = self.compile_merger(node.inputs, node.outputs)
 
         else:
             raise ValueError('Node %s is undefined.' % node.name)
@@ -206,14 +226,16 @@ class NetBuilder(ast.NodeVisitor):
     #--------------------------------------------------------------------------
 
     def compile(self, ast):
-        obj = self.compile_net(ast)
-        network = Network(obj)
+        inputs = self.traverse(ast.inputs)
+        outputs = self.traverse(ast.outputs)
 
+        obj = self.compile_net(ast, inputs, outputs)
+        network = Network(obj)
         return network
 
-    def compile_sync(self, sync_ast):
-        sb = SyncBuilder()
-        obj = sb.traverse(sync_ast)
+    def compile_sync(self, sync, inputs, outputs):
+        sb = SyncBuilder(inputs, outputs)
+        obj = sb.traverse(sync.ast)
         return obj
 
     def compile_synchtab(self, name, sync_ast, labels):
@@ -224,17 +246,11 @@ class NetBuilder(ast.NodeVisitor):
         obj = components.SynchTable(name, inputs, outputs, sync_ast, labels)
         return obj
 
-    def compile_net(self, net, vertex=None):
+    def compile_net(self, net, inputs, outputs):
         assert(type(net) == ast.Net)
 
         decls = self.traverse(net.decls)
-
-        scope = {}
-        for d in decls:
-            scope[d[2]] = d
-
-        inputs = self.traverse(net.inputs)
-        outputs = self.traverse(net.outputs)
+        scope = {d[1]: d for d in decls}
 
         obj = components.Net(net.name, inputs, outputs)
 
@@ -293,8 +309,8 @@ class NetBuilder(ast.NodeVisitor):
             else:
                 n_in = 2 if cat[0] == 'D' else 1
 
-            inputs = self._gen_ports(n_in, vertex.inputs)
-            outputs = self._gen_ports(n_out, vertex.outputs)
+            inputs = self._rename_ports(n_in, vertex.inputs)
+            outputs = self._rename_ports(n_out, vertex.outputs)
 
             if cat == 'T':
                 obj = components.Transductor(vertex.name, inputs, outputs, box)
@@ -350,8 +366,19 @@ class NetBuilder(ast.NodeVisitor):
 
     #--------------------------------------------------------------------------
 
-    def _gen_ports(self, n, rename):
-        return [(rename.get(i, '_%s' % (i+1))) for i in range(n)]
+    def _rename_ports(self, n, rename, defaults=None):
+
+        if not defaults:
+            defaults = ['_%s' % (i+1) for i in range(n)]
+
+        if type(rename) is list:
+            rename_map = dict(zip(defaults, rename))
+        elif type(rename) is dict:
+            rename_map = rename
+        else:
+            raise ValueError('Wrong ports in renaming bracket.')
+
+        return [(rename_map.get(name, name)) for name in defaults]
 
     def _free_ports(self, nodes):
         inputs = {}

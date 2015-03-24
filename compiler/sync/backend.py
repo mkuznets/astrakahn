@@ -6,7 +6,10 @@ from . import ast
 
 class SyncBuilder(ast.NodeVisitor):
 
-    def __init__(self):
+    def __init__(self, inputs, outputs):
+
+        self.input_ports = inputs
+        self.output_ports = outputs
 
         # Mapping from port names to port ids.
         self.input_index = None
@@ -18,8 +21,11 @@ class SyncBuilder(ast.NodeVisitor):
 
         scope = components.Scope(children['decls'] + self.consts)
 
-        del children['decls']
-        return components.Sync(scope=scope, **children)
+        name = children['name']
+        states = children['states']
+
+        return components.Sync(name, self.input_ports, self.output_ports,
+                               scope, states)
 
     #--------------------------------------------------
 
@@ -57,9 +63,9 @@ class SyncBuilder(ast.NodeVisitor):
         assert(type == 'int' or type == 'enum')
 
         if type == 'int':
-            return components.StateInt(children['name'], arg)
+            return components.StateInt(children['name'], arg, children['value'])
         elif type == 'enum':
-            return components.StateEnum(children['name'], arg)
+            return components.StateEnum(children['name'], arg, children['value'])
 
     def visit_IntType(self, node, children):
         return ('int', children['size'])

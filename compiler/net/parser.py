@@ -283,12 +283,7 @@ def p_renaming_opt(p):
                  | kwarg_list
                  | empty
     '''
-    if not p[1]:
-        p[0] = {}
-    elif type(p[1]) == list:
-        p[0] = dict(enumerate(p[1]))
-    else:
-        p[0] = p[1]
+    p[0] = p[1] or None
 
 
 #------------------------------------------------------------------------------

@@ -138,8 +138,12 @@ class Node:
 
         input_ready = True
 
-        for port_id in rng:
-            channel = self._get_input_channel(port_id)
+        channels = list(filter(None, [self._get_input_channel(i) for i in rng]))
+
+        if not channels:
+            return False
+
+        for channel in channels:
 
             ready = channel.size() >= nmsg
 
@@ -159,7 +163,7 @@ class Node:
 
         for port_id in rng:
             channel = self._get_input_channel(port_id)
-            if not channel.is_empty():
+            if channel and not channel.is_empty():
                 port_list.append(port_id)
 
         return port_list
@@ -172,7 +176,7 @@ class Node:
         for port_id in rng:
             channel = self._get_output_channel(port_id)
 
-            if not channel.is_space_for(space_needed):
+            if channel and not channel.is_space_for(space_needed):
                 return False
 
         return True
@@ -286,7 +290,8 @@ class Node:
                 vertex respectively for input and output channels.
         '''
         raise NotImplementedError('The is_ready method is not defined for the '
-                                  'abstract vertex.')
+                                  'abstract vertex: %s.' %
+                                  self.__class__.__name__)
 
     def fetch(self):
         '''
@@ -821,6 +826,13 @@ class PTransductor(Net):
 
 #--------------------------------------------------------------------------
 
+class Morphism(Net):
+
+    def __init__(self, name, inputs, outputs, inductor, transductor, reductor):
+        pass
+
+#--------------------------------------------------------------------------
+
 class SynchTable(Net):
 
     def __init__(self, name, inputs, outputs, sync_ast, labels):
@@ -1136,6 +1148,7 @@ class MonadicReductor(Box):
         # for segmentation mark.
         output_ready &= self.is_output_unblocked((self._main_output,),
                                                  space_needed=2)
+
         return (is_input_msg, output_ready)
 
     def fetch(self):
@@ -1350,7 +1363,6 @@ class Sync(Vertex):
         return (True, True)
 
     def fetch(self):
-
         # Mapping from inputs to number of accepted messages.
         stats = {c: self.state[c].hits for c in self.inputs_ready}
 
@@ -1727,7 +1739,11 @@ class Transition:
         for item in items:
 
             if item[0] == 'ItemThis':
-                new_item = self.this['msg'].content
+                if not isinstance(self.this['msg'], comm.Record):
+                    raise RuntimeError('Segmentation mark cannot be a part of '
+                                       'compound message.')
+                else:
+                    new_item = self.this['msg'].content
 
             elif item[0] == 'ItemVar':
                 var = item[1]
@@ -1859,10 +1875,10 @@ class Const(Variable):
 
 class StateInt(Variable):
 
-    def __init__(self, name, width):
+    def __init__(self, name, width, value=0):
         super(StateInt, self).__init__(name)
         self.width = width
-        self.value = 0
+        self.value = value
 
     def set(self, value):
         if True: # value >= (- 2 ** (self.width - 1)) and value <= (2 ** (self.width - 1) - 1):
@@ -1880,11 +1896,11 @@ class StateInt(Variable):
 
 class StateEnum(Variable):
 
-    def __init__(self, name, labels):
+    def __init__(self, name, labels, value=0):
         super(StateEnum, self).__init__(name)
         self.labels = tuple(labels)
         self.label_map = {n: i for i, n in enumerate(labels)}
-        self.value = 0
+        self.value = value
 
     def set(self, value):
 

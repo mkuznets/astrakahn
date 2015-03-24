@@ -44,7 +44,7 @@ def parse(code, syncs):
     net_ast = parser.parse(code)
 
     wiring = net_ast.wiring
-    outputs = {i: p.value for i, p in enumerate(net_ast.outputs.ports)}
+    outputs = [p.value for p in net_ast.outputs.ports]
 
     csync = CompileSync(syncs)
     csync.traverse(net_ast)
