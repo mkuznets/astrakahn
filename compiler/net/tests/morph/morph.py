@@ -4,9 +4,9 @@
 net Factorial (in, _in | out, _out)
 morph { Induce / Map / Reduce }
 synch Guard
+synch Router
 connect
-  <in|EqualSplit .. <_1, nfrag|Guard|_1> .. <_1,_in|~|_1> .. Induce .. Map .. Reduce|out>
-  #<in|Test|init,n> .. <n|Gen|terms,init> .. <init,terms|Reduce|out>
+  Guard|out=_1> .. Induce .. <_1,_in|~|_1> .. Map .. <_1|Router|out=_1> .. Reduce|out>
 end
 '''
 
@@ -15,42 +15,77 @@ import communication as comm
 
 
 s_Guard = '''
-synch Guard (in, __nfrag__ | out)
+synch Guard (in, __nfrag__, __refrag__ | out)
 {
-  state int(32) nfrag = 10, ntmp=10;
+  state int(32) nfrag = 10, ntmp=10,
+                refrag = 0, refragtmp = 0;
 
   start {
     on:
       in.@d {
-        set nfrag = [ntmp];
+        set nfrag = [ntmp], refrag = [refragtmp];
         send this => out;
       }
 
+    elseon:
+      in & [refrag] {
+        send (__nfrag__: nfrag || 'refrag || this) => out;
+      }
+
       in.else {
-        send (nfrag: [nfrag] || this) => out;
+        send (__nfrag__: nfrag || this) => out;
       }
 
       __nfrag__.(n) {
         set ntmp = [n];
       }
+
+      __refrag__.(r) {
+        set refragtmp = [r];
+      }
   }
 }
 '''
 
-def c_EqualSplit(msg):
-    '1T'
-    n, m = len(msg['lst']), msg['m']
 
-    size, rem = divmod(n, m)
-    chunks = list(map(sum, zip([size] * m,
-                                [1] * rem + [0] * (m - rem))))
-    msg['chunks'] = chunks
+s_Router = '''
+synch Router (in | out, _out)
+{
+  state int(1) last = 0;
 
-    return ('send', {0: [msg]}, None)
+  start {
+    on:
+      in.@d & [last == 0] {
+        send this => out;
+      }
 
+      in.@d & [last == 1] {
+        send this => _out;
+      }
+
+    elseon:
+      in.(refrag) & [refrag == 0] {
+        set last = [0];
+        send this => out;
+      }
+
+      in.(refrag) & [refrag == 1] {
+        set last = [1];
+        send this => _out;
+      }
+
+    elseon:
+      in {
+        # Default destination: to refragmentation.
+        set last = [0];
+        send this => out;
+      }
+  }
+}
+'''
 
 def c_Map(msg):
-    '1T'
+    '1T*'
     msg['sum'] = sum(msg['lst'])
     del msg['lst']
     return ('send', {0: [msg]}, None)
@@ -61,7 +96,15 @@ def c_Induce(msg):
     if not msg['lst']:
         return ('terminate', {}, None)
     else:
-        chunks = msg['chunks']
+        if 'chunks' not in msg:
+            # Append a list of chunk sizes.
+            n, nfrag = len(msg['lst']), msg['__nfrag__']
+
+            size, rem = divmod(n, nfrag)
+            msg['chunks'] = list(map(sum, zip([size] * nfrag,
+                                              [1] * rem + [0] * (nfrag - rem))))
+            print(msg['chunks'])
+
         out_msg = msg.copy()
         n = msg['chunks'].pop()
 
@@ -78,14 +121,14 @@ def c_Reduce(m1, m2):
     return ('partial', {}, m1)
 
 
-__input__ = {'_1': [], '__1': []}
+__input__ = {'in': [], '_in': []}
 
 import random
 
-__input__['_1'].append(comm.Record({'lst': [random.random() for i in
-                                            range(10)], 'm': 10}))
-__input__['_1'].append(comm.SegmentationMark(0))
-__input__['__1'].append(comm.SegmentationMark(0))
+__input__['in'].append(comm.Record({'lst': [random.random() for i in
+                                            range(100)], '__nfrag__': 7}))
+__input__['in'].append(comm.SegmentationMark(0))
+__input__['_in'].append(comm.SegmentationMark(0))
 
 import astrakahn
 astrakahn.start()
