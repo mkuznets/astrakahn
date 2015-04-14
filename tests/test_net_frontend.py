@@ -5,8 +5,8 @@ sys.path[0:0] = ['..', '../..']
 
 
 import unittest
-import net
-from net import ast
+import compiler.net as net
+from compiler.net import ast
 
 
 class ASTNetWiring(ast.NodeVisitor):
@@ -33,8 +33,7 @@ class ASTVertex(ast.NodeVisitor):
         self.vertices = []
 
     def visit_Vertex(self, node, _):
-        self.vertices.append((node.name, node.category, node.inputs,
-                              node.outputs))
+        self.vertices.append((node.name, node.inputs, node.outputs))
 
 
 class ASTMorphism(ast.NodeVisitor):
@@ -42,29 +41,11 @@ class ASTMorphism(ast.NodeVisitor):
     def visit_Net(self, node, children):
         return children['decls']
 
+    def visit_DeclList(self, node, children):
+        return children['decls']
+
     def visit_Morphism(self, node, children):
-        return ('morphism', node.trigger, children['morph_list'],
-                children['override_list'])
-
-    def visit_Morph(self, node, children):
-        return ('morph', children['split'], children['map_list'],
-                children['join'])
-
-    def visit_MorphSplitMap(self, node, children):
-        return ('morph_splitmap', children['split_map_list'], children['join'])
-
-    def visit_MorphMapJoin(self, node, children):
-        return ('morph_mapjoin', children['split'], children['map_join_list'])
-
-    def visit_SplitMap(self, node, children):
-        return ('splitmap', children['split'], children['map'])
-
-    def visit_MapJoin(self, node, children):
-        return ('mapjoin', children['map'], children['join'])
-
-    def visit_Override(self, node, children):
-        return ('override', children['join'], children['split'],
-                children['sync'])
+        return ('morph', node.split, node.map, node.join)
 
     def visit_ID(self, node, _):
         return node.value
@@ -73,7 +54,8 @@ class ASTMorphism(ast.NodeVisitor):
 class TestParser(unittest.TestCase):
 
     def _check_wiring(self, wiring, reference):
-        ast = net.parse('net bar (a | b) connect {} end'.format(wiring))
+        ast = net.parse('net bar (a | b) connect %s end' % wiring,
+                        output_handler=False)
 
         visit = ASTNetWiring()
         visit.traverse(ast)
@@ -101,7 +83,8 @@ class TestParser(unittest.TestCase):
     #--------------------------------------------------------------------------
 
     def _check_vertex(self, vertex, reference):
-        ast = net.parse('net bar (a | b) connect {} end'.format(vertex))
+        ast = net.parse('net bar (a | b) connect %s end' % vertex,
+                        output_handler=False)
 
         visit = ASTVertex()
         visit.traverse(ast)
@@ -115,25 +98,25 @@ class TestParser(unittest.TestCase):
         testcases = [
 
             # Simple vertex name.
-            ('a', [('a', None, {}, {})]),
-
-            # Vertex name with category
-            ('TRANS:a', [('a', 'TRANS', {}, {})]),
+            ('a', [('a', {}, {})]),
 
             # Renaming brackets: list style.
             ('<a, b | box | m, c, ddd>', [
-                ('box', None, {0: 'a', 1: 'b'}, {0: 'm', 1: 'c', 2: 'ddd'})
+                ('box', ['a', 'b'], ['m', 'c', 'ddd'])
             ]),
 
             # Renaming brackets: dict- and list-style, category.
-            ('<true=false, _1=aaa, a2=a5 | t:box | m, c, ddd>', [
-                ('box', 't',
-                 {'true': 'false', '_1': 'aaa', 'a2': 'a5'},
-                 {0: 'm', 1: 'c', 2: 'ddd'})
+            ('<true=false, _1=aaa, a2=a5 | box | m, c, ddd>', [
+                ('box', {'true': 'false', '_1': 'aaa', 'a2': 'a5'},
+                 ['m', 'c', 'ddd'])
             ]),
 
             # Renaming brackets: empty sections.
-            ('<| box |>', [('box', None, {}, {})]),
+            ('<| box |>', [('box', {}, {})]),
+
+            # Renaming brackets: single section.
+            ('<a, b| box', [('box', ['a', 'b'], {})]),
+            ('box|_1 = ololo>', [('box', {}, {'_1': 'ololo'})]),
         ]
 
         for vertex, ref in testcases:
@@ -144,11 +127,11 @@ class TestParser(unittest.TestCase):
     def _check_morphism(self, testcase, reference):
         code = '''
         net foo (a|a)
-          {}
+          %s
         connect a end
-        '''.format(testcase)
+        ''' % testcase
 
-        ast = net.parse(code)
+        ast = net.parse(code, output_handler=False)
         visit = ASTMorphism()
         decls = visit.traverse(ast)
 
@@ -164,11 +147,11 @@ class TestParser(unittest.TestCase):
         # Simple morphism
 
         testcase = '''
-        morph (size) {div / b1 / joiner}
+        morph {div / b1 / joiner}
         '''
 
         reference = [
-            ('morphism', 'size', [('morph', 'div', ['b1'], 'joiner')], [])
+            ('morph', 'div', 'b1', 'joiner')
         ]
 
         self._check_morphism(testcase, reference)
@@ -177,45 +160,16 @@ class TestParser(unittest.TestCase):
         # All 3 types of morphism declaration
 
         testcase = '''
-        morph (nn) {
-          div / b1, b2 / joiner,
-          (aa / bb, cc / dd) / ee,
-          zz / (yy / xx, ww / vv)
+        morph {
+            div / b1, b2 / joiner,
+            foo / b3 / bar
         }
         '''
 
         reference = [
-            ('morphism', 'nn', [
-                ('morph', 'div', ['b1', 'b2'], 'joiner'),
-                ('morph_splitmap', [('splitmap', 'aa', 'bb'),
-                                   ('splitmap', 'cc', 'dd')], 'ee'),
-                ('morph_mapjoin', 'zz', [('mapjoin', 'yy', 'xx'),
-                                          ('mapjoin', 'ww', 'vv')]),
-            ], [])
-        ]
-
-        self._check_morphism(testcase, reference)
-
-        #---------------------------------------------------------------------
-        # Overrides
-
-        testcase = '''
-        morph (nn) {
-          (aa / bb, cc / dd) / ee
-
-          where joiner .. div = glue,
-                ee .. aa = bypass
-        }
-        '''
-
-        reference = [
-            ('morphism', 'nn', [
-                ('morph_splitmap', [('splitmap', 'aa', 'bb'),
-                                   ('splitmap', 'cc', 'dd')], 'ee'),
-            ], [
-                ('override', 'joiner', 'div', 'glue'),
-                ('override', 'ee', 'aa', 'bypass'),
-            ])
+            ('morph', 'div', 'b1', 'joiner'),
+            ('morph', 'div', 'b2', 'joiner'),
+            ('morph', 'foo', 'b3', 'bar')
         ]
 
         self._check_morphism(testcase, reference)
