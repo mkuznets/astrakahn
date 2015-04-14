@@ -1,91 +1,20 @@
 #!/usr/bin/env python3
 
 '''
-net Factorial (in, _in | out, _out)
+net Factorial (in, _in | out, _out, o1, o2)
 morph { Induce / Map / Reduce }
-synch Guard
-synch Router
 connect
-  Guard|out=_1> .. Induce .. <_1,_in|~|_1> .. Map .. <_1|Router|out=_1> .. Reduce|out>
+  # Manual morphism.
+  #Marker|out=_1> .. Induce .. <_1,_in|~|_1> .. Map .. <_1|Router|out=_1> .. Reduce|out>
+
+  # Proper morphism.
+  <in, _in|Map|out, o1, o2>
 end
 '''
 
 
-import communication as comm
-
-
-s_Guard = '''
-synch Guard (in, __nfrag__, __refrag__ | out)
-{
-  state int(32) nfrag = 10, ntmp=10,
-                refrag = 0, refragtmp = 0;
-
-  start {
-    on:
-      in.@d {
-        set nfrag = [ntmp], refrag = [refragtmp];
-        send this => out;
-      }
-
-    elseon:
-      in & [refrag] {
-        send (__nfrag__: nfrag || 'refrag || this) => out;
-      }
-
-      in.else {
-        send (__nfrag__: nfrag || this) => out;
-      }
-
-      __nfrag__.(n) {
-        set ntmp = [n];
-      }
-
-      __refrag__.(r) {
-        set refragtmp = [r];
-      }
-  }
-}
-'''
-
-
-s_Router = '''
-synch Router (in | out, _out)
-{
-  state int(1) last = 0;
-
-  start {
-    on:
-      in.@d & [last == 0] {
-        send this => out;
-      }
-
-      in.@d & [last == 1] {
-        send this => _out;
-      }
-
-    elseon:
-      in.(refrag) & [refrag == 0] {
-        set last = [0];
-        send this => out;
-      }
-
-      in.(refrag) & [refrag == 1] {
-        set last = [1];
-        send this => _out;
-      }
-
-    elseon:
-      in {
-        # Default destination: to refragmentation.
-        set last = [0];
-        send this => out;
-      }
-  }
-}
-'''
-
 def c_Map(msg):
-    '1T*'
+    '3T'
     msg['sum'] = sum(msg['lst'])
     del msg['lst']
     return ('send', {0: [msg]}, None)
@@ -124,9 +53,10 @@ def c_Reduce(m1, m2):
 __input__ = {'in': [], '_in': []}
 
 import random
+import communication as comm
 
 __input__['in'].append(comm.Record({'lst': [random.random() for i in
-                                            range(100)], '__nfrag__': 7}))
+                                            range(100)], '__nfrag__': 7 }))
 __input__['in'].append(comm.SegmentationMark(0))
 __input__['_in'].append(comm.SegmentationMark(0))
 

@@ -829,7 +829,38 @@ class PTransductor(Net):
 class Morphism(Net):
 
     def __init__(self, name, inputs, outputs, inductor, transductor, reductor):
-        pass
+        assert(len(inputs) == 2)
+        assert(len(outputs) >= 2)
+
+        super(Morphism, self).__init__(name, inputs, outputs)
+
+        # Add components to network.
+        inductor_id = self.add_node(inductor)
+        transductor_id = self.add_node(transductor)
+        reductor_id = self.add_node(reductor)
+
+        import libmorph as lib
+
+        marker_id = self.add_node(lib.build_marker())
+        router_id = self.add_node(lib.build_router(0))
+
+        merger = Merger('MorphMerger', inputs, [outputs[0]])
+        merger_id = self.add_node(merger)
+
+        # Construct the network.
+        self.mount_input_port(0, (marker_id, 0))
+        self.mount_input_port(1, (merger_id, 1))
+
+        self.add_wire((marker_id, 0), (merger_id, 0))
+        self.add_wire((merger_id, 0), (transductor_id, 0))
+        self.add_wire((transductor_id, 0), (router_id, 0))
+        self.add_wire((router_id, 0), (reductor_id, 0))
+
+        self.mount_output_port(0, (reductor_id, 0))
+        self.mount_output_port(1, (router_id, 1))
+
+        for port_id in range(1, len(transductor.outputs)):
+            self.mount_output_port(port_id+1, (transductor_id, port_id))
 
 #--------------------------------------------------------------------------
 
@@ -1226,7 +1257,7 @@ class Merger(Vertex):
 
     def fetch(self):
         msgs = []
-        for i in self.inputs:
+        for i in self.get_ready_inputs():
             try:
                 m = self.get(i)
                 msgs.append(m)
@@ -1323,7 +1354,7 @@ class Sync(Vertex):
         blocked = set()
 
         for i, port in self.outputs.items():
-            if not port.channel.is_space_for(1):
+            if port.channel and (not port.channel.is_space_for(1)):
                 blocked.add(i)
 
         return blocked

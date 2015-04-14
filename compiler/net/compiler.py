@@ -50,8 +50,8 @@ def parse(code, syncs):
     csync.traverse(net_ast)
 
     # Add an output handler.
-    net_ast.wiring = ast.BinaryOp('..', wiring, ast.Vertex('__output__', None,
-                                                            outputs, outputs))
+    v = ast.Vertex(outputs, outputs, '__output__', None)
+    net_ast.wiring = ast.BinaryOp('..', wiring, v)
 
     return net_ast
 

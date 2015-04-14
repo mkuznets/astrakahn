@@ -36,8 +36,12 @@ class NetBuilder(ast.NodeVisitor):
         # Copy the scope at the top of the stack
         scope = self.scope_stack[-1].copy()
 
+        # A declaration with the name corresponding to some box overrides the
+        # box.
+        non_redefined_cores = {k: v for k, v in self.cores.items() if k not in scope}
+
         # Add core entries.
-        scope.update(self.cores)
+        scope.update(non_redefined_cores)
 
         return scope
 
@@ -81,6 +85,41 @@ class NetBuilder(ast.NodeVisitor):
             if decl[0] == 'core':
                 obj = self.compile_box(decl[1], node)
 
+            elif decl[0] == 'morph':
+
+                boxes = (decl[2].split, decl[2].map, decl[2].join)
+
+                for name in boxes:
+                    if name not in self.cores:
+                        raise ValueError('Mosphism: box `%s\' not found' % (name))
+
+                split, map, join = (self.cores[n][1] for n in boxes)
+
+                # Transductor
+                v = ast.Vertex(node.inputs, node.outputs, decl[2].map, None)
+                transductor = self.compile_box(map, v)
+
+                # Inductor
+                v = ast.Vertex([], [], decl[2].split, None)
+                inductor = self.compile_box(split, v)
+
+                # Reductor
+                v = ast.Vertex([], [], decl[2].join, None)
+                reductor = self.compile_box(join, v)
+
+                # Prepare port names.
+                inputs = [transductor.inputs[0].name]
+                inputs.append('_%s' % inputs[0])
+                #
+                m = transductor.outputs[0].name
+                outputs = [m, '_%s' % m]
+                outputs += ['%s' % p.name for pid, p
+                            in sorted(transductor.outputs.items()) if pid > 0]
+
+                # Morphism
+                obj = components.Morphism(decl[2].map, inputs, outputs,
+                               inductor, transductor, reductor)
+
             # Port names are computed right here.
             else:
                 n_in, n_out = len(decl[3]), len(decl[4])
@@ -91,9 +130,6 @@ class NetBuilder(ast.NodeVisitor):
 
                 if decl[0] == 'net':
                     obj = self.compile_net(decl[2], inputs, outputs)
-
-                elif decl[0] == 'morph':
-                    raise NotImplementedError('¯\_(ツ)_/¯')
 
                 elif decl[0] == 'sync':
                     obj = self.compile_sync(decl[2], inputs, outputs)

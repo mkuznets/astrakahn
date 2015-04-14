@@ -222,18 +222,18 @@ class UnaryOp(Node):
     attr_names = ('op',)
 
 class Vertex(Node):
-    def __init__(self, name, category, inputs, outputs, coord=None):
-        self.name = name
-        self.category = category
+    def __init__(self, inputs, outputs, name, category, coord=None):
         self.inputs = inputs
         self.outputs = outputs
+        self.name = name
+        self.category = category
         self.coord = coord
 
     def children(self, expand=False):
         nodelist = []
         return tuple(nodelist)
 
-    attr_names = ('name','category','inputs','outputs',)
+    attr_names = ('inputs','outputs','name','category',)
 
 class ID(Node):
     def __init__(self, value, coord=None):
