@@ -115,21 +115,9 @@ def p_macros_opt(p):
 
 def p_morphism(p):
     '''
-    morphism : MORPH LBRACE morph_body RBRACE
+    morphism : MORPH LBRACE morph_list RBRACE
     '''
     p[0] = [ast.Morphism(*m) for m in p[3]]
-
-
-def p_morph_body(p):
-    '''
-    morph_body : morph_list
-    '''
-
-    morph_body = []
-    for m in p[1]:
-        morph_body.append(m)
-
-    p[0] = morph_body
 
 
 def p_morph_list(p):
@@ -142,32 +130,9 @@ def p_morph_list(p):
 
 def p_morph(p):
     '''
-    morph : split_map_join
-          | splitmap_join
-          | split_mapjoin
-    '''
-    p[0] = p[1]
-
-
-def p_split_map_join(p):
-    '''
-    split_map_join : split SLASH map_list SLASH join
+    morph : split SLASH map_list SLASH join
     '''
     p[0] = [(p[1], m, p[5]) for m in p[3]]
-
-
-def p_splitmap_join(p):
-    '''
-    splitmap_join : LPAREN split_map_list RPAREN SLASH join
-    '''
-    p[0] = [sm + (p[5], ) for sm in p[2]]
-
-
-def p_split_mapjoin(p):
-    '''
-    split_mapjoin : split SLASH LPAREN map_join_list RPAREN
-    '''
-    p[0] = [(p[1], ) + mj for mj in p[4]]
 
 
 def p_map_list(p):
@@ -176,32 +141,6 @@ def p_map_list(p):
              | map_list COMMA map
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_split_map_list(p):
-    '''
-    split_map_list : split_map
-                   | split_map_list COMMA split_map
-    '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_map_join_list(p):
-    '''
-    map_join_list : map_join
-                  | map_join_list COMMA map_join
-    '''
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_split_map(p):
-    '''split_map : split SLASH map'''
-    p[0] = (p[1], p[3])
-
-
-def p_map_join(p):
-    '''map_join : map SLASH join'''
-    p[0] = (p[1], p[3])
 
 
 def p_map(p):
@@ -217,6 +156,7 @@ def p_split(p):
 def p_join(p):
     '''join : ID'''
     p[0] = p[1]
+
 
 def p_wiring(p):
     '''
@@ -250,7 +190,6 @@ def p_vertex(p):
     '''
 
     p[0] = ast.Vertex(inputs=p[1], outputs=p[3], **p[2])
-
 
 def p_vertex_name_or_merge(p):
     '''
