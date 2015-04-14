@@ -8,6 +8,7 @@ from multiprocessing import cpu_count
 
 import compiler.net as compiler
 
+
 def __output__(stream):
     '''
     1H
@@ -17,6 +18,7 @@ def __output__(stream):
     for entry in stream:
         pid, pname, msg = entry
         print(time.time(), 'O: %s: %s' % (pname, msg))
+
 
 def get_caller_module():
 
@@ -34,40 +36,41 @@ def get_net():
 
     name, filename, path, caller = get_caller_module()
 
-    rt_file = os.path.join(path, '%s.rt' % name)
+    ## Load runtime component network from cache.
+    #rt_file = os.path.join(path, '%s.rt' % name)
 
-    src_hash = hashlib.md5(open(filename, 'rb').read()).hexdigest()
+    #src_hash = hashlib.md5(open(filename, 'rb').read()).hexdigest()
 
-    if (os.path.isfile(rt_file) and os.access(rt_file, os.R_OK)):
-        obj = load(input_file=rt_file)
+    #if (os.path.isfile(rt_file) and os.access(rt_file, os.R_OK)):
+    #    obj = load(input_file=rt_file)
 
-        if type(obj) == tuple and len(obj) == 2 and obj[1] == src_hash:
-            return obj[0]
-
-    cores = {n[2:]: ('core', g)
-             for n, g in caller.items() if inspect.isfunction(g) and n.startswith('c_')}
-
-    syncs = {n[2:]: g
-             for n, g in caller.items() if type(g) is str and n.startswith('s_')}
-
-    src_code = caller['__doc__']
-
-    ast = compiler.parse(src_code, syncs)
-
-    if '__output__' in caller and inspect.isfunction(caller['__output__']):
-        output_handler = caller['__output__']
-    else:
-        output_handler = __output__
-
-    cores['__output__'] = ('core', output_handler)
+    #    if type(obj) == tuple and len(obj) == 2 and obj[1] == src_hash:
+    #        return obj[0]
 
 
-    builder = compiler.backend.NetBuilder(cores)
-    net = builder.compile(ast)
+    # Extract network code from module docstring.
+    code = caller['__doc__']
 
-    if '__input__' in caller and isinstance(caller['__input__'], dict):
+    # Extract definitions of core functions and synchronisers.
+    cores = {n[2:]: ('core', g) for n, g in caller.items()\
+             if inspect.isfunction(g) and n.startswith('c_')}
+
+    syncs = {n[2:]: g for n, g in caller.items()\
+             if type(g) is str and n.startswith('s_')}
+
+    # Add handler function to core function list.
+    is_custom_handler = inspect.isfunction(caller.get('__output__'))
+    handler = caller['__output__'] if is_custom_handler else __output__
+    cores['__output__'] = ('core', handler)
+
+    # Compile network.
+    net = compiler.compile(code, cores, syncs)
+
+    # If initial input is defined, send it to network.
+    if isinstance(caller.get('__input__'), dict):
         net.init_input(caller['__input__'])
 
+    ## Save compiled network to cache file.
     #dump(net, src_hash, os.path.join(path, '%s.rt' % name))
 
     net.show()
@@ -120,6 +123,3 @@ def load(data=None, input_file=None):
     #        obj.core = types.FunctionType(code, globals(), obj.core[0])
 
     return obj
-
-
-#------------------------------------------------------------------------------

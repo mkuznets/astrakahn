@@ -1,2 +1,2 @@
-from .compiler import parse
+from .compiler import parse, compile
 from . import backend
