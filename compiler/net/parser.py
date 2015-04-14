@@ -197,7 +197,7 @@ def p_vertex_name_or_merge(p):
                          | MERGE
     '''
     if p[1] == '~':
-        p[0] = {'name': '~', 'category': None}
+        p[0] = {'name': '~'}
     else:
         p[0] = p[1]
 
@@ -207,8 +207,7 @@ def p_vertex_name(p):
     vertex_name : ID
                 | ID COLON ID
     '''
-    p[0] = {'name': p[1] if len(p) == 2 else p[3],
-            'category': p[1] if len(p) == 4 else None}
+    p[0] = {'name': p[1] if len(p) == 2 else p[3]}
 
 
 def p_input_renaming_opt(p):
