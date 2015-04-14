@@ -17,7 +17,7 @@ def p_net(p):
     net : pure_opt NET ID LPAREN port_list VBAR port_list RPAREN decl_list_opt \
         CONNECT wiring END
     '''
-    p[0] = ast.Net(is_pure=bool(p[1]), name=p[3],
+    p[0] = ast.Net(is_pure=p[1], name=p[3],
                    inputs=ast.PortList(p[5]),
                    outputs=ast.PortList(p[7]),
                    decls=p[9], wiring=p[11])
@@ -36,7 +36,7 @@ def p_pure_opt(p):
     pure_opt : PURE
              | empty
     '''
-    p[0] = p[1]
+    p[0] = bool(p[1])
 
 
 def p_id_list(p):
@@ -110,7 +110,7 @@ def p_macros_opt(p):
     macros_opt : LBRACKET kwarg_list RBRACKET
                | empty
     '''
-    p[0] = p[2] if p[1] != '' else {}
+    p[0] = p[2] if p[1] else {}
 
 
 def p_morphism(p):

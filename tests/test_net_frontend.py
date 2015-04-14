@@ -117,6 +117,9 @@ class TestParser(unittest.TestCase):
             # Renaming brackets: single section.
             ('<a, b| box', [('box', ['a', 'b'], {})]),
             ('box|_1 = ololo>', [('box', {}, {'_1': 'ololo'})]),
+
+            # Merger
+            ('<a| ~ |b, c>', [('~', ['a'], ['b', 'c'])]),
         ]
 
         for vertex, ref in testcases:
