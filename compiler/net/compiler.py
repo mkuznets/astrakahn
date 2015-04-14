@@ -26,7 +26,7 @@ class SyncParser(ast.NodeVisitor):
         node.ast = sync_ast
 
 
-def parse(code, syncs):
+def parse(code, syncs=None, output_handler=True):
 
     lexer = net_lexer.build()
     parser = net_parser.build()
@@ -34,20 +34,25 @@ def parse(code, syncs):
     # Generate net AST.
     net_ast = parser.parse(code)
 
+    if not net_ast:
+        raise ValueError('AST was not build due to some error.')
+
     # Traverse AST and parse synchronisers.
-    SyncParser(syncs).traverse(net_ast)
+    if syncs:
+        SyncParser(syncs).traverse(net_ast)
 
     # Manually add and connect handler vertex before net output.
-    wiring = net_ast.wiring
-    outputs = [p.value for p in net_ast.outputs.ports]
-    #
-    v = ast.Vertex(outputs, outputs, '__output__', None)
-    net_ast.wiring = ast.BinaryOp('..', wiring, v)
+    if output_handler:
+        wiring = net_ast.wiring
+        outputs = [p.value for p in net_ast.outputs.ports]
+        #
+        v = ast.Vertex(outputs, outputs, '__output__', None)
+        net_ast.wiring = ast.BinaryOp('..', wiring, v)
 
     return net_ast
 
 
-def compile(code, cores, syncs):
+def compile(code, cores, syncs=None):
 
     # Generate AST from net source code.
     net_ast = parse(code, syncs)
