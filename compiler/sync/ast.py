@@ -153,8 +153,9 @@ class Port(Node):
     attr_names = ()
 
 class DepthExp(Node):
-    def __init__(self, depth, shift, coord=None):
+    def __init__(self, depth, sign, shift, coord=None):
         self.depth = depth
+        self.sign = sign
         self.shift = shift
         self.coord = coord
 
@@ -164,7 +165,7 @@ class DepthExp(Node):
         if self.shift is not None: nodelist.append(("shift", self.shift))
         return tuple(nodelist)
 
-    attr_names = ()
+    attr_names = ('sign',)
 
 class DepthNone(Node):
     def __init__(self, coord=None):

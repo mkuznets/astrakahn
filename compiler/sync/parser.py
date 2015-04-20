@@ -121,8 +121,7 @@ def p_depth_exp(p):
         p[0] = p[1]
 
     else:
-        shift.value = p[3].value if p[2] == '+' else -p[3].value
-        p[0] = ast.DepthExp(p[1], shift)
+        p[0] = ast.DepthExp(p[1], p[2], p[3])
 
 
 def p_decl_list_opt(p):
