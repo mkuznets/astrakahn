@@ -297,17 +297,8 @@ def p_guard_opt(p):
               | empty
     '''
     if p[1] == '':
-        #code = 'lambda : True'
-
-        #try:
-        #    f = eval(code)
-        #except SyntaxError as err:
-        #    print('guard_opt:', err)
-        #    quit()
-
-        #f.code = code
-
         p[0] = ast.IntExp('True', [], {})
+
     else:
         p[0] = p[2]
 
@@ -464,14 +455,6 @@ def p_int_exp(p):
     int_exp : LBRACKET intexp_raw RBRACKET
     '''
     global intexp_args, terms, terms_cnt
-    #code = 'lambda {}: {}'.format(', '.join(set(intexp_args)), p[2])
-
-    #try:
-    #    f = eval(code)
-    #except SyntaxError as err:
-    #    print('guard_opt:', err, "\n", code)
-    #    quit()
-    #f.code = code
 
     p[0] = ast.IntExp(p[2], intexp_args, terms)
 
