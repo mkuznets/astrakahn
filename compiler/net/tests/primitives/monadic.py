@@ -16,7 +16,7 @@ def c_Reduce(m1, m2):
     a = m1['n']
     b = m2['n']
     c = a + b
-    return ('partial', {1: {'n': c}}, {'n': c})
+    return ('partial', {1: [{'n': c}]}, {'n': c})
 
 
 __input__ = {'in': [

@@ -42,7 +42,7 @@ class Channel:
 #------------------------------------------------------------------------------
 
 
-class Message:
+class Message(object):
     """
     Superclass of all types of messages
     """
@@ -72,8 +72,8 @@ class DataMessage(Message):
     Regular data messages
     """
 
-    def __init__(self, content):
-        self.content = content
+    def __init__(self, content=None):
+        self.content = content or {}
         self.alt = ''
 
     def __repr__(self):
@@ -82,9 +82,12 @@ class DataMessage(Message):
 
 class Record(DataMessage):
 
-    def __init__(self, content={}):
+    def __init__(self, content=None):
 
-        if type(content) is not dict:
+        if content is None:
+            content = {}
+
+        elif type(content) is not dict:
             raise TypeError('Record data must be a dictionary.')
 
         super(Record, self).__init__(content)
@@ -156,11 +159,11 @@ class SegmentationMark(Record):
 
     @property
     def n(self):
+        assert(['__n__'] in self)
         return self['__n__']
 
     @n.setter
     def n(self, x):
-
         if type(x) is not int:
             raise TypeError('Bracketing depth must be an integer.')
 
