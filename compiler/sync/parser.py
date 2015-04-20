@@ -531,7 +531,7 @@ from . import lexer
 
 def build():
     tokens = lexer.tokens
-    tab_path = os.path.dirname(__file__) + '/parsetab/sync'
+    tab_path = '/tmp/tmp-sync-tab'
     return yacc.yacc(start='sync', debug=0, tabmodule=tab_path)
 
 

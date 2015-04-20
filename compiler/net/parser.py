@@ -259,7 +259,7 @@ from . import lexer
 
 def build():
     tokens = lexer.tokens
-    tab_path = os.path.dirname(os.path.realpath(__file__)) + '/parsetab/sync'
+    tab_path = '/tmp/tmp-net-tab'
     return yacc.yacc(start='net', debug=0, tabmodule=tab_path)
 
 
