@@ -219,6 +219,16 @@ class SegmentationMark(Record):
     def end_of_stream(self):
         return self.n == 0
 
+    def extract(self, pattern, tail=None):
+
+        outcome = super(SegmentationMark, self).extract(pattern, tail)
+
+        if tail:
+            # Remove system value of depth from the tail.
+            outcome[tail].pop('__n__', None)
+
+        return outcome
+
     def __repr__(self):
         return (')' * self.n) + ('(' * self.n) if self.n else 'sigma_0'
 

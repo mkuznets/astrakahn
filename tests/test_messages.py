@@ -111,6 +111,7 @@ class TestRecord(unittest.TestCase):
         d = {'1': 1.0, '2': 2, '3': 'three', (1, 8): 'one eight'}
         m = Record(d)
 
+        self.assertIn([], m)
         self.assertIn(['1', '2'], m)
         self.assertIn([(1, 8)], m)
         self.assertIn(list(d.keys()), m)
@@ -187,6 +188,16 @@ class TestSegmentationMark(unittest.TestCase):
         m['a'] = 'b'
         self.assertIn('a', m)
         self.assertEqual(m['a'], 'b')
+
+    def test_extract(self):
+        # __n__ should be is filtered from the pattern matching tail.
+
+        m = SegmentationMark(23)
+        m['foo'] = 1
+        m['bar'] = 2
+
+        match = m.extract(['foo'], 'rest')
+        self.assertNotIn('__n__', match['rest'])
 
     def test_operations(self):
 
