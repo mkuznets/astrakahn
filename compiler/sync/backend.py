@@ -1,7 +1,74 @@
 #!/usr/bin/env python3
 
 import components
+import communication as comm
+from collections import Iterable
 from . import ast
+
+
+class Condition(object):
+    def __init__(self, msg=None):
+        self.msg = msg
+        self.locals = {}
+
+    def test(self):
+        return NotImplementedError('test() is not implemented')
+
+
+class ConditionPass(Condition):
+
+    def test(self):
+        return True
+
+
+class ConditionData(Condition):
+
+    def __init__(self, msg, pattern=None, tail=None):
+        super(ConditionData, self).__init__(msg)
+
+        self.pattern = pattern
+        self.tail = tail
+
+    def _match_pattern(self):
+
+        if self.pattern is not None:
+            if self.pattern not in self.msg:
+                return False
+
+            match = self.msg.extract(self.pattern, self.tail)
+            self.locals.update(match)
+
+        return True
+
+    def test(self):
+
+        if type(self.msg) is not comm.Record:
+            return False
+
+        return self._match_pattern()
+
+
+class ConditionSegmark(ConditionData):
+
+    def __init__(self, msg, depth, pattern=None, tail=None):
+        super(ConditionSegmark, self).__init__(msg, pattern, tail)
+
+        # TODO: typecheck `depth'
+        assert(isinstance(depth, str))
+
+        self.depth = depth
+
+    def test(self):
+
+        if not isinstance(self.msg, comm.SegmentationMark):
+            return False
+
+        match = self._match_pattern()
+
+        if match:
+            self.locals[self.depth] = self.msg.n
+
+        return match
 
 
 class SyncBuilder(ast.NodeVisitor):
