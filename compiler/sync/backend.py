@@ -7,66 +7,65 @@ from . import ast
 
 
 class Condition(object):
-    def __init__(self, msg=None):
-        self.msg = msg
+    def __init__(self):
         self.locals = {}
 
-    def test(self):
-        return NotImplementedError('test() is not implemented')
+    def test(self, msg=None):
+        raise NotImplementedError('test() is not implemented')
 
 
 class ConditionPass(Condition):
 
-    def test(self):
+    def test(self, msg=None):
         return True
 
 
 class ConditionData(Condition):
 
-    def __init__(self, msg, pattern=None, tail=None):
-        super(ConditionData, self).__init__(msg)
+    def __init__(self, pattern=None, tail=None):
+        super(ConditionData, self).__init__()
 
         self.pattern = pattern
         self.tail = tail
 
-    def _match_pattern(self):
+    def _match_pattern(self, msg):
 
         if self.pattern is not None:
-            if self.pattern not in self.msg:
+            if self.pattern not in msg:
                 return False
 
-            match = self.msg.extract(self.pattern, self.tail)
+            match = msg.extract(self.pattern, self.tail)
             self.locals.update(match)
 
         return True
 
-    def test(self):
+    def test(self, msg):
 
-        if type(self.msg) is not comm.Record:
+        if type(msg) is not comm.Record:
             return False
 
-        return self._match_pattern()
+        return self._match_pattern(msg)
 
 
 class ConditionSegmark(ConditionData):
 
-    def __init__(self, msg, depth, pattern=None, tail=None):
-        super(ConditionSegmark, self).__init__(msg, pattern, tail)
+    def __init__(self, depth, pattern=None, tail=None):
+        super(ConditionSegmark, self).__init__(pattern, tail)
 
         # TODO: typecheck `depth'
         assert(isinstance(depth, str))
 
         self.depth = depth
 
-    def test(self):
+    def test(self, msg):
 
-        if not isinstance(self.msg, comm.SegmentationMark):
+        if not isinstance(msg, comm.SegmentationMark):
             return False
 
-        match = self._match_pattern()
+        match = self._match_pattern(msg)
 
         if match:
-            self.locals[self.depth] = self.msg.n
+            self.locals[self.depth] = msg.n
 
         return match
 
