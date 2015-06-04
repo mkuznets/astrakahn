@@ -241,8 +241,7 @@ def p_trans_stmt(p):
 
 def p_condition_opt(p):
     '''
-    condition_opt : DOT cond_segmark
-                  | DOT cond_datamsg
+    condition_opt : DOT cond_msg
                   | DOT cond_else
                   | empty
     '''
@@ -252,27 +251,40 @@ def p_condition_opt(p):
         p[0] = p[2]
 
 
-def p_cond_segmark(p):
+def p_cond_else(p):
     '''
-    cond_segmark : AT VID
+    cond_else : ELSE
     '''
-    p[0] = ast.CondSegmark(p[2])
+    p[0] = ast.CondElse()
 
 
-def p_cond_datamsg(p):
+def p_cond_msg(p):
     '''
-    cond_datamsg : QM VID
-                 | LPAREN id_list tail_opt RPAREN
-                 | QM VID LPAREN id_list tail_opt RPAREN
+    cond_msg : segmark_opt pattern_opt
     '''
-    if len(p) == 3:
-        p[0] = ast.CondDataMsg(p[2], [], ast.TERM(None))
 
-    elif len(p) == 5:
-        p[0] = ast.CondDataMsg(ast.TERM(None), p[2], p[3])
+    if p[1].value is not None:
+        p[0] = ast.CondSegmark(depth=p[1], **p[2])
 
-    elif len(p) == 7:
-        p[0] = ast.CondDataMsg(p[2], p[4], p[5])
+    else:
+        p[0] = ast.CondDataMsg(**p[2])
+
+
+def p_segmark_opt(p):
+    '''
+    segmark_opt : AT VID
+                | empty
+    '''
+    p[0] = p[2] if len(p) == 3 else ast.TERM(None)
+
+
+def p_pattern_opt(p):
+    '''
+    pattern_opt : LPAREN id_list tail_opt RPAREN
+                | empty
+    '''
+    pattern, tail = (p[2], p[3]) if len(p) > 2 else ([], ast.TERM(None))
+    p[0] = {'pattern': pattern, 'tail': tail}
 
 
 def p_tail_opt(p):
@@ -281,13 +293,6 @@ def p_tail_opt(p):
              | empty
     '''
     p[0] = p[2] if len(p) == 3 else ast.TERM(None)
-
-
-def p_cond_else(p):
-    '''
-    cond_else : ELSE
-    '''
-    p[0] = ast.CondElse()
 
 
 def p_guard_opt(p):
@@ -335,27 +340,27 @@ def p_assign(p):
 
 def p_data_exp(p):
     '''
-    data_exp : data
-             | LPAREN data RPAREN
+    data_exp : term_list
+             | LPAREN term_list RPAREN
     '''
     data = p[1] if len(p) == 2 else p[2]
     p[0] = ast.DataExp(data)
 
 
-def p_data(p):
+def p_term_list(p):
     '''
-    data : item
-         | data LOR item
+    term_list : term
+              | term_list LOR term
     '''
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
 
 
-def p_item(p):
+def p_term(p):
     '''
-    item : THIS
+    term : THIS
          | VID
          | APOSTR VID
-         | VID COLON rhs
+         | VID COLON pair_value
     '''
     if len(p) == 2:
         if p[1] == 'this':
@@ -372,12 +377,16 @@ def p_item(p):
         raise ValueError("Something Wrong!")
 
 
-def p_rhs(p):
+def p_pair_value(p):
     '''
-    rhs : VID
-        | int_exp
+    pair_value : VID
+               | int_exp
     '''
-    p[0] = p[1]
+    if type(p[1]) is ast.ID:
+        p[0] = ast.ItemVar(p[1])
+
+    else:
+        p[0] = p[1]
 
 
 def p_send_stmt_opt(p):
@@ -406,26 +415,29 @@ def p_dispatch(p):
 def p_msg_exp(p):
     '''
     msg_exp : AT int_exp
-            | AT VID
-            | data_msg
-            | NIL
+            | AT int_exp LBRACE data_exp RBRACE
+            | choice_opt LBRACE data_exp RBRACE
+            | data_exp
     '''
-    if len(p) == 2:
-        p[0] = ast.MsgNil() if p[1] == 'nil' else p[1]
+    if len(p) == 3:
+        p[0] = ast.MsgSegmark(p[2], ast.DataExp([]))
+
+    elif len(p) == 6:
+        p[0] = ast.MsgSegmark(p[2], p[4])
+
+    elif len(p) == 5:
+        p[0] = ast.MsgRecord(p[1], p[3])
+
     else:
-        depth = p[2]
-        p[0] = ast.MsgSegmark(depth)
+        p[0] = ast.MsgData(p[1])
 
 
-def p_data_msg(p):
+def p_choice_opt(p):
     '''
-    data_msg : data_exp
-             | QM VID data_exp
+    choice_opt : VID
+               | empty
     '''
-    if len(p) == 2:
-        p[0] = ast.MsgData(None, p[1])
-    else:
-        p[0] = ast.MsgData(p[2], p[3])
+    p[0] = p[1] or ast.ID('uniq')
 
 
 def p_goto_stmt_opt(p):

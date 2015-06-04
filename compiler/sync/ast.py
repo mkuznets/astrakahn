@@ -321,33 +321,39 @@ class Trans(Node):
     attr_names = ()
 
 class CondSegmark(Node):
-    def __init__(self, depth, coord=None):
+    def __init__(self, depth, pattern, tail, coord=None):
         self.depth = depth
-        self.coord = coord
-
-    def children(self, expand=False):
-        nodelist = []
-        if self.depth is not None: nodelist.append(("depth", self.depth))
-        return tuple(nodelist)
-
-    attr_names = ()
-
-class CondDataMsg(Node):
-    def __init__(self, choice, labels, tail, coord=None):
-        self.choice = choice
-        self.labels = labels
+        self.pattern = pattern
         self.tail = tail
         self.coord = coord
 
     def children(self, expand=False):
         nodelist = []
-        if self.choice is not None: nodelist.append(("choice", self.choice))
+        if self.depth is not None: nodelist.append(("depth", self.depth))
         if self.tail is not None: nodelist.append(("tail", self.tail))
         if expand:
-            for i, child in enumerate(self.labels or []):
-                nodelist.append(("labels[%d]" % i, child))
+            for i, child in enumerate(self.pattern or []):
+                nodelist.append(("pattern[%d]" % i, child))
         else:
-            nodelist.append(("labels", list(self.labels) or []))
+            nodelist.append(("pattern", list(self.pattern) or []))
+        return tuple(nodelist)
+
+    attr_names = ()
+
+class CondDataMsg(Node):
+    def __init__(self, pattern, tail, coord=None):
+        self.pattern = pattern
+        self.tail = tail
+        self.coord = coord
+
+    def children(self, expand=False):
+        nodelist = []
+        if self.tail is not None: nodelist.append(("tail", self.tail))
+        if expand:
+            for i, child in enumerate(self.pattern or []):
+                nodelist.append(("pattern[%d]" % i, child))
+        else:
+            nodelist.append(("pattern", list(self.pattern) or []))
         return tuple(nodelist)
 
     attr_names = ()
@@ -385,17 +391,17 @@ class Assign(Node):
     attr_names = ()
 
 class DataExp(Node):
-    def __init__(self, items, coord=None):
-        self.items = items
+    def __init__(self, terms, coord=None):
+        self.terms = terms
         self.coord = coord
 
     def children(self, expand=False):
         nodelist = []
         if expand:
-            for i, child in enumerate(self.items or []):
-                nodelist.append(("items[%d]" % i, child))
+            for i, child in enumerate(self.terms or []):
+                nodelist.append(("terms[%d]" % i, child))
         else:
-            nodelist.append(("items", list(self.items) or []))
+            nodelist.append(("terms", list(self.terms) or []))
         return tuple(nodelist)
 
     attr_names = ()
@@ -462,18 +468,20 @@ class Send(Node):
     attr_names = ()
 
 class MsgSegmark(Node):
-    def __init__(self, depth, coord=None):
+    def __init__(self, depth, data_exp, coord=None):
         self.depth = depth
+        self.data_exp = data_exp
         self.coord = coord
 
     def children(self, expand=False):
         nodelist = []
         if self.depth is not None: nodelist.append(("depth", self.depth))
+        if self.data_exp is not None: nodelist.append(("data_exp", self.data_exp))
         return tuple(nodelist)
 
     attr_names = ()
 
-class MsgData(Node):
+class MsgRecord(Node):
     def __init__(self, choice, data_exp, coord=None):
         self.choice = choice
         self.data_exp = data_exp
@@ -487,12 +495,15 @@ class MsgData(Node):
 
     attr_names = ()
 
-class MsgNil(Node):
-    def __init__(self, coord=None):
+class MsgData(Node):
+    def __init__(self, data_exp, coord=None):
+        self.data_exp = data_exp
         self.coord = coord
 
     def children(self, expand=False):
-        return ()
+        nodelist = []
+        if self.data_exp is not None: nodelist.append(("data_exp", self.data_exp))
+        return tuple(nodelist)
 
     attr_names = ()
 

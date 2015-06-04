@@ -15,7 +15,7 @@ s_cpu = '''
 synch cpu (instr, load, mem, c | stdout, load, mem, c)
 {
   store mem;
-  state int(1) found;
+  state int(2) found;
 
   state int(SIZE) acc;
 

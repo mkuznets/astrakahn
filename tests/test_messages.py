@@ -91,7 +91,9 @@ class TestRecord(unittest.TestCase):
 
         def _check(mm, ext):
 
-            self.assertIn(ext, m)
+            for i in ext:
+                self.assertIn(i, m)
+
             self.assertEqual(len(mm), len(ext))
 
             for k in ext:
@@ -111,12 +113,11 @@ class TestRecord(unittest.TestCase):
         d = {'1': 1.0, '2': 2, '3': 'three', (1, 8): 'one eight'}
         m = Record(d)
 
-        self.assertIn([], m)
-        self.assertIn(['1', '2'], m)
-        self.assertIn([(1, 8)], m)
-        self.assertIn(list(d.keys()), m)
+        self.assertIn('1', m)
+        self.assertIn((1, 8), m)
+        [self.assertIn(k, m) for k in d.keys()]
 
-        self.assertNotIn(['12'], m)
+        self.assertNotIn('12', m)
 
     def test_repr(self):
 
@@ -126,6 +127,28 @@ class TestRecord(unittest.TestCase):
 
         match = re.match('record\(((.+?)\: (.+?))*\)', str(m))
         self.assertTrue(bool(match))
+
+    def test_copy(self):
+
+        m = Record({'1': 1.0, '2': 2, '3': 'three'})
+        mc = m.copy()
+
+        self.assertEqual(m.content, mc.content)
+        self.assertNotEqual(id(m.content), id(mc.content))
+        self.assertNotEqual(id(m), id(mc))
+
+    def test_pop(self):
+
+        m = Record({'1': 1.0, '2': 2, '3': 'three'})
+
+        with self.assertRaises(TypeError):
+            m.pop('a', 1, 2)
+
+        with self.assertRaises(IndexError):
+            m.pop('a')
+
+        self.assertEqual(m.pop('1'), 1.0)
+        self.assertNotIn('1', m)
 
 
 class TestSegmentationMark(unittest.TestCase):
@@ -185,9 +208,22 @@ class TestSegmentationMark(unittest.TestCase):
         m = SegmentationMark(nstr='))))((((')
         self.assertEqual(m['__n__'], 4)
 
-        m['a'] = 'b'
-        self.assertIn('a', m)
-        self.assertEqual(m['a'], 'b')
+        m['abc'] = 'b'
+        self.assertIn('abc', m)
+        self.assertEqual(m['abc'], 'b')
+
+    def test_union(self):
+        # Union for segmark must prerve its depth.
+
+        sm1 = SegmentationMark(23)
+        sm2 = SegmentationMark(5)
+        sm2['foo'] = 'bar'
+
+        sm1.union(sm2)
+
+        self.assertEqual(sm1.n, 23)
+        self.assertIn('foo', sm1)
+        self.assertEqual(sm1['foo'], 'bar')
 
     def test_extract(self):
         # __n__ should be is filtered from the pattern matching tail.
@@ -234,6 +270,16 @@ class TestSegmentationMark(unittest.TestCase):
             m = SegmentationMark(i)
             mm = SegmentationMark(nstr=str(m))
             self.assertEqual(mm.n, i)
+
+    def test_copy(self):
+
+        m = SegmentationMark(24)
+        mc = m.copy()
+
+        self.assertEqual(m.n, mc.n)
+        self.assertEqual(m.content, mc.content)
+        self.assertNotEqual(id(m.content), id(mc.content))
+        self.assertNotEqual(id(m), id(mc))
 
 
 if __name__ == '__main__':

@@ -79,6 +79,8 @@ class DataMessage(Message):
     def __repr__(self):
         return "msg(" + str(self.content) + ")"
 
+    def __eq__(self, op):
+        return isinstance(op, DataMessage) and self.content == op.content
 
 class Record(DataMessage):
 
@@ -93,7 +95,17 @@ class Record(DataMessage):
         super(Record, self).__init__(content)
 
     def union(self, msg):
-        self.content.update(msg.content)
+        # TODO: typecheck
+        self.update(msg.content)
+
+    def copy(self):
+        content = self.content.copy()
+        return self.__class__(content)
+
+    def update(self, content):
+        # TODO: typecheck
+        # TODO: tests
+        self.content.update(content)
 
     def extract(self, pattern, tail=None):
 
@@ -106,12 +118,10 @@ class Record(DataMessage):
             if not p:
                 raise ValueError('Labels must be non-empty strings.')
 
-        pattern = set(pattern)
-
-        aliases = {}
+        local_vars = {}
 
         if pattern:
-            aliases.update({l: self.content[l] for l in pattern})
+            local_vars.update({l: self.content[l] for l in pattern})
 
         if tail is not None:
 
@@ -121,23 +131,37 @@ class Record(DataMessage):
             if not tail:
                 raise ValueError('Tail label must be non-empty string.')
 
-            if tail in aliases:
+            if tail in local_vars:
                 raise IndexError('Tail label must not coincide with matched labels.')
 
             label_diff = self.content.keys() - set(pattern)
-            tail_content = {l: self.content[l] for l in label_diff}
-            aliases.update({tail: tail_content})
+            local_vars[tail] = Record({l: self.content[l] for l in label_diff})
 
-        return aliases
+        return local_vars
 
-    def __contains__(self, pattern):
-        return True if set(pattern) <= self.content.keys() else False
+    def __contains__(self, label):
+        return label in self.content
 
     def __getitem__(self, index):
         return self.content[index]
 
     def __setitem__(self, index, value):
         self.content[index] = value
+
+    def pop(self, index, *args):
+
+        if len(args) > 1:
+            raise TypeError('pop expected at most 2 arguments, got %s'
+                            % 1 + len(args))
+
+        if index in self.content:
+            return self.content.pop(index)
+
+        elif args:
+            return args[0]
+
+        else:
+            raise IndexError('Label %s not found.' % index)
 
     def __len__(self):
         return len(self.content)
@@ -159,7 +183,7 @@ class SegmentationMark(Record):
 
     @property
     def n(self):
-        assert(['__n__'] in self)
+        assert('__n__' in self)
         return self['__n__']
 
     @n.setter
@@ -228,6 +252,19 @@ class SegmentationMark(Record):
             outcome[tail].pop('__n__', None)
 
         return outcome
+
+    def union(self, msg):
+        n = self.n
+        super(SegmentationMark, self).union(msg)
+
+        # Restore depth.
+        self.n = n
+
+    def copy(self):
+        content = self.content.copy()
+        obj = self.__class__(self.n)
+        obj.update(content)
+        return obj
 
     def __repr__(self):
         return (')' * self.n) + ('(' * self.n) if self.n else 'sigma_0'

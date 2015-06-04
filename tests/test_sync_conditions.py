@@ -34,6 +34,10 @@ class TestConditions(unittest.TestCase):
         self.assertFalse(c.test(ms))
         self.assertEqual(c.locals, {})
 
+        c = sync_backend.ConditionData([])
+        self.assertTrue(c.test(m))
+        self.assertEqual(c.locals, {})
+
         c = sync_backend.ConditionData(['foo'])
         self.assertTrue(c.test(m))
         self.assertEqual(c.locals, {'foo': 1})
@@ -44,11 +48,25 @@ class TestConditions(unittest.TestCase):
 
         c = sync_backend.ConditionData(['foo'], 'rest')
         self.assertTrue(c.test(m))
-        self.assertEqual(c.locals, {'foo': 1, 'rest': {'bar': 2, 'baz': 3}})
+        self.assertEqual(c.locals, {'foo': 1,
+                                    'rest': comm.Record({'bar': 2, 'baz': 3})})
 
         c = sync_backend.ConditionData(['foo', 'bar', 'baz'], 'rest')
         self.assertTrue(c.test(m))
-        self.assertEqual(c.locals, {'foo': 1, 'bar': 2, 'baz': 3, 'rest': {}})
+        self.assertEqual(c.locals, {'foo': 1, 'bar': 2, 'baz': 3,
+                                    'rest': comm.Record()})
+
+    def test_locals(self):
+
+        m1 = comm.Record({'foo': 1, 'bar': 2, 'baz': 3})
+        m2 = comm.Record({'baz': 3})
+
+        c = sync_backend.ConditionData(['foo', 'bar'])
+        self.assertTrue(c.test(m1))
+        self.assertEqual(c.locals, {'foo': 1, 'bar': 2})
+
+        self.assertFalse(c.test(m2))
+        self.assertEqual(c.locals, {})
 
     def test_segmark(self):
 
@@ -76,7 +94,8 @@ class TestConditions(unittest.TestCase):
 
         c = sync_backend.ConditionSegmark('d', ['tree'], 'rest')
         self.assertTrue(c.test(ms))
-        self.assertEqual(c.locals, {'d': 23, 'tree': -1, 'rest': {'foobar': -2}})
+        self.assertEqual(c.locals, {'d': 23, 'tree': -1,
+                                    'rest': comm.Record({'foobar': -2})})
 
 
 if __name__ == '__main__':

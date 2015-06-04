@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
 keywords = ['SYNCH', 'STORE', 'STATE', 'INT', 'ENUM', 'ON', 'ELSEON', 'ELSE',
-            'SET', 'SEND', 'GOTO', 'THIS', 'NIL']
+            'SET', 'SEND', 'GOTO', 'THIS']
 
 tokens = keywords + [
     'ID', 'NUMBER', 'LBRACE', 'RBRACE', 'LPAREN', 'RPAREN', 'LBRACKET',
     'RBRACKET', 'COLON', 'PLUS', 'MINUS', 'MULT', 'DIVIDE', 'MOD', 'SHL',
     'SHR', 'LE', 'GE', 'GEQ', 'LEQ', 'EQ', 'NEQ', 'NOT', 'BAND', 'BOR', 'BXOR',
-    'LAND', 'LOR', 'COMMA', 'DOT', 'AT', 'QM', 'TO', 'ASSIGN', 'SCOLON',
+    'LAND', 'LOR', 'COMMA', 'DOT', 'AT', 'TO', 'ASSIGN', 'SCOLON',
     'APOSTR'
 ]
 
@@ -42,7 +42,6 @@ t_LOR           = r'\|\|'
 t_COMMA         = r','
 t_DOT           = r'\.'
 t_AT            = r'@'
-t_QM            = r'\?'
 t_TO            = r'=>'
 t_ASSIGN        = r'='
 t_SCOLON        = r';'

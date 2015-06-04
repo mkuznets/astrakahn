@@ -1404,6 +1404,11 @@ class Sync(Vertex):
         self.this['msg'] = self.get(port)
         self.this['port'] = port
 
+        m = StoreVar('__this__')
+        m.set(self.this['msg'])
+
+        self.scope.index['__this__'] = m
+
         # Increment usage counter on the chosen handler.
         self.port_handler.hit()
 
@@ -1534,7 +1539,7 @@ class PortHandler:
             #
             for trans in order:
 
-                if trans.is_else() and trans.test():
+                if trans.is_else and trans.test():
                     # .else condition.
                     else_trans = trans
                     continue
@@ -1574,6 +1579,8 @@ class Transition:
         self.condition = condition
         self.guard = guard
 
+        self.is_else = getattr(condition, 'is_else', False)
+
         self.actions = {'Goto': [], 'Assign': [], 'Send': []}
         # Group actions by type.
         for act in actions:
@@ -1596,9 +1603,6 @@ class Transition:
 
     #---------------------------------------------------
 
-    def is_else(self):
-        return self.condition[0] == 'CondElse'
-
     def impact(self):
         '''
         Get outputs to which messages can be sent while performing
@@ -1618,57 +1622,16 @@ class Transition:
         return result
 
     def test_condition(self):
-        msg = self.this['msg']
 
-        ctype = self.condition[0]
+        result = self.condition.test(self.this['msg'])
 
-        # on C
-        # on C.else
-        if ctype == 'CondElse' or ctype == 'CondEmpty':
-            return True
+        self.local_aliases.update(self.condition.locals)
+        self.scope.add_from(self.local_aliases)
 
-        # on C.@depth
-        elif ctype == 'CondSegmark':
-
-            if not isinstance(msg, comm.SegmentationMark):
-                return False
-
-            depth = self.condition[1]
-            self.local_aliases[depth] = msg.n
-            self.scope.add_from(self.local_aliases)
-
-            return True
-
-        # on C.?variant
-        elif ctype == 'CondDataMsg':
-
-            if not isinstance(msg, comm.Record):
-                return False
-
-            alt, pattern, tail = self.condition[1:]
-
-            if alt and msg.alt != alt:
-                return False
-
-            if pattern or tail:
-                if not isinstance(msg, comm.Record) or (pattern not in msg):
-                    return False
-                self.local_aliases = msg.extract(pattern, tail)
-                self.scope.add_from(self.local_aliases)
-
-            return True
+        return result
 
     def test_guard(self):
-
-        if not self.guard:
-            return True
-
-        assert(self.guard[0] == 'IntExp')
-
-        exp = self.guard[1]
-        result = self._compute_intexp(exp)
-
-        return bool(result)
+        return bool(self.guard.compute(self.scope)) if self.guard else True
 
     #---------------------------------------------------
 
@@ -1676,19 +1639,7 @@ class Transition:
 
         for act in self.actions['Assign']:
             lhs, rhs = act[1:]
-            type, content = rhs
-
-            if type == 'DataExp':
-                result = self._compute_dataexp(content)
-
-            elif type == 'IntExp':
-                result = self._compute_intexp(content)
-
-            else:
-                raise AssertionError('Unsupported type of expression')
-                return
-
-            self.scope[lhs] = result
+            self.scope[lhs] = self._compute(rhs)
 
     def send(self):
 
@@ -1696,41 +1647,8 @@ class Transition:
 
         for act in self.actions['Send']:
             msg, port = act[1:]
-            mtype = msg[0]
 
-            if mtype == 'MsgSegmark':
-                dtype, depth = msg[1]
-
-                if dtype == 'DepthVar':
-                    assert(depth in self.scope
-                           and type(self.scope[depth]) == int)
-
-                    outcome = comm.SegmentationMark(self.scope[depth])
-
-                elif dtype == 'IntExp':
-                    result = self._compute_intexp(depth)
-                    outcome = comm.SegmentationMark(result)
-
-                else:
-                    raise AssertionError('Unsupported type of segmark depth.')
-                    return
-
-            elif mtype == 'MsgData':
-                alt, dataexp = msg[1:]
-
-                result = self._compute_dataexp(dataexp[1])
-                if type(result) is int:
-                    outcome = comm.SegmentationMark(result)
-                elif type(result) is dict:
-                    outcome = comm.Record(result)
-                else:
-                    raise AssertionError('Wrong dataexp.')
-
-                if alt:
-                    outcome.alt = alt
-
-            elif mtype == 'MsgNil':
-                outcome = comm.NilMessage()
+            outcome = self._compute(msg)
 
             dispatch[port] = dispatch.get(port, []) + [outcome]
 
@@ -1747,80 +1665,27 @@ class Transition:
 
     #---------------------------------------------------
 
-    def _compute_intexp(self, exp):
-
-        assert(callable(exp))
-
-        # Collect argument values from the scope.
-        args = (self.scope[n] for n in exp.__code__.co_varnames)
-
-        # Evaluate expression.
-        return int(exp(*args))
-
-    def _compute_dataexp(self, items):
-
-        content = {}
-
-        if len(items) == 1 and items[0][0] == 'ItemThis':
-            if self.this['msg'].is_segmark():
-                return self.this['msg'].n
-            else:
-                return self.this['msg'].content
-
-        for item in items:
-
-            if item[0] == 'ItemThis':
-                if not isinstance(self.this['msg'], comm.Record):
-                    raise RuntimeError('Segmentation mark cannot be a part of '
-                                       'compound message.')
-                else:
-                    new_item = self.this['msg'].content
-
-            elif item[0] == 'ItemVar':
-                var = item[1]
-                assert(var in self.scope
-                       and type(self.scope[var]) == dict)
-                new_item = self.scope[var]
-
-            elif item[0] == 'ItemPair':
-
-                label, rhs = item[1:]
-
-                if rhs[0] == 'ID':
-                    assert(rhs[1] in self.scope)
-                    new_item = {label: self.scope[rhs[1]]}
-
-                elif rhs[0] == 'IntExp':
-                    result = self._compute_intexp(rhs[1])
-                    new_item = {label: result}
-
-                else:
-                    raise AssertionError('Unsupported type of '
-                                         'rhs: {}'.format(rhs[0]))
-                    return
-
-            else:
-                raise AssertionError('Unsupported type of '
-                                     'expression: {}'.format(item[0]))
-                return
-
-            content.update(new_item)
-
-        return content
+    def _compute(self, exp):
+        assert(hasattr(exp, 'compute'))
+        return exp.compute(self.scope)
 
 #------------------------------------------------------------------------------
 
 class Scope:
 
     def __init__(self, items):
+
         self.items = []
         self.tmp_items = []
 
         self.index = {}
 
         for v in items:
+
             if not isinstance(v, Variable):
-                raise ValueError('Item of a wrong type: {}'.format(type(v)))
+                raise ValueError('Item of a wrong type: %s, Variable expected'
+                                 % type(v))
+
             else:
                 self.items.append(v)
                 self.index[v.name] = v
@@ -1834,7 +1699,7 @@ class Scope:
         if name in self.index:
             return self.index[name].get()
         else:
-            raise IndexError('Name `{}\' is not in the scope'.format(name))
+            raise IndexError('Name `%s\' is not in the scope' % name)
 
     def __setitem__(self, name, value):
         if name in self.index:
@@ -1842,7 +1707,7 @@ class Scope:
             self.index[name].set(value)
         else:
             # Create new temporary variable.
-            obj = Alias(name)
+            obj = Local(name)
             obj.set(value)
             self.tmp_items.append(obj)
             self.index[name] = obj
@@ -1850,9 +1715,10 @@ class Scope:
     def add_from(self, container):
         if not isinstance(container, dict):
             raise ValueError('add_from() supports only dict containers.')
+
         else:
             for n, v in container.items():
-                self.__setitem__(n, v)
+                self[n] = v
 
     def __contains__(self, name):
         return name in self.index
@@ -1862,6 +1728,10 @@ class Scope:
 class Variable:
 
     def __init__(self, name):
+
+        if not isinstance(name, str):
+            raise TypeError('Variable name must be a string.')
+
         self.name = name
         self.value = None
 
@@ -1869,23 +1739,16 @@ class Variable:
         return self.value
 
     def set(self, value):
-        raise NotImplemented('Set method not implemented for generic type.')
-
-
-class Alias(Variable):
-
-    def __init__(self, name):
-        super(Alias, self).__init__(name)
-        self.value = 0
-
-    def set(self, value):
         self.value = value
 
-    def __int__(self):
-        return self.value
+    def __repr__(self):
+        raise NotImplementedError('Representation is not implemented.')
+
+
+class Local(Variable):
 
     def __repr__(self):
-        return 'Alias({})'.format(self.name)
+        return 'local(%s = %s)' % (self.name, self.value)
 
 
 class Const(Variable):
@@ -1895,77 +1758,120 @@ class Const(Variable):
         self.value = value
 
     def set(self, value):
-        raise AssertionError('Constant cannot be changed.')
-
-    def __int__(self):
-        return self.value
+        raise RuntimeError('Constant `%s\' cannot be changed.' % self.name)
 
     def __repr__(self):
-        return 'Const({}={})'.format(self.name, self.value)
+        return 'const(%s = %s)' % (self.name, self.value)
 
 
 class StateInt(Variable):
 
     def __init__(self, name, width, value=0):
         super(StateInt, self).__init__(name)
+
+        if not isinstance(width, int):
+            raise TypeError('State variable width must be a positive integer.')
+
+        if width < 1:
+            raise ValueError('State variable width must be a positive integer.')
+
         self.width = width
-        self.value = value
+        self.set(value)
 
     def set(self, value):
-        if True: # value >= (- 2 ** (self.width - 1)) and value <= (2 ** (self.width - 1) - 1):
-            self.value = value
-        else:
-            raise RuntimeError('Value %d is out of range for int width %d.'
-                               % (value, self.width))
 
-    def __int__(self):
-        return self.value
+        if not isinstance(value, int):
+            raise TypeError('Assignment error for `%s\': value must be integer'
+                            % self.name)
+
+        if (- 2 ** (self.width - 1)) <= value <= (2 ** (self.width - 1) - 1):
+            self.value = value
+
+        else:
+            raise RuntimeError(
+                'Assignment error for `%s\': %d is out of range for integer '
+                'with bitwidth %d.' % (self.name, value, self.width))
 
     def __repr__(self):
-        return 'StateInt({})'.format(self.width)
+        return 'state(int%s %s = %s)' % (self.width, self.name, self.value)
 
 
 class StateEnum(Variable):
 
     def __init__(self, name, labels, value=0):
         super(StateEnum, self).__init__(name)
+
+        if not isinstance(labels, Sequence) or isinstance(labels, str):
+            raise TypeError('Labels must be an iterable container.')
+
+        if not labels:
+            raise ValueError('Labels container cannot be empty.')
+
+        for label in labels:
+            if type(label) is not str:
+                raise ValueError('Label of type `%s\' found, string expected.'
+                                 % type(label))
+
         self.labels = tuple(labels)
-        self.label_map = {n: i for i, n in enumerate(labels)}
-        self.value = value
+        self.label_index = {label: i for i, label in enumerate(labels)}
+
+        self.set(value)
+
+    #----
+
+    def _test_value(self, value):
+        return 0 <= value < len(self.labels)
+
+    def _get_int(self, label):
+
+        if label not in self.label_index:
+            raise RuntimeError(
+                'Error for `%s\': label %s is not defined for the enum'
+                % (self.name, label))
+
+        return self.label_index[label]
+
+    def _get_label(self, value=None):
+
+        if value is not None:
+            if not self._test_value(value):
+                raise RuntimeError(
+                    'Error for `%s\': value %s does not correspond to any '
+                    'label of enum' % (self.name, value))
+
+            return self.labels[value]
+
+        else:
+            assert(self._test_value(self.value))
+            return self.labels[self.value]
+
+    #----
 
     def set(self, value):
 
-        if type(value) == str:
-            # Set named constant.
-            if value in self.label_map:
-                self.value = self.label_map[value]
-            else:
-                raise IndexError('Label {} is not defined '
-                                 'for the enum'.format(value))
+        if type(value) is str:
+            # Named constant.
+            self.value = self._get_int(value)
 
-        elif type(value) == int:
-            # Set integer value.
-            # NOTE: It is not checked that the given number is in the range of
-            # declared named constants. In this sence StateEnum is equivalent
-            # to StateInt.
+        elif type(value) is int:
+            # Direct integer value.
+            self._get_label(value)  # Result is not used, just for typecheck.
             self.value = value
 
-    def __int__(self):
-        return self.value
-
     def __repr__(self):
-        return 'StateEnum({}, {})'.format(self.name, self.labels)
+        return 'state(enum %s = %s)' % (self.name, self._get_label())
 
 
 class StoreVar(Variable):
 
-    def __init__(self, name):
-        super(StoreVar, self).__init__(name)
-        self.value = {}
-
     def set(self, value):
+
+        if not isinstance(value, comm.DataMessage):
+            raise TypeError(
+                'Assignment error for `%s\': value has type `%s\', message '
+                'expected.' % (self.name, type(value)))
+
         self.value = value
 
     def __repr__(self):
-        return 'StoreVar({})'.format(self.name)
-
+        return 'store(%s = %s)' % (self.name, self.get())
