@@ -4,12 +4,12 @@ import collections
 
 
 class Channel:
-    def __init__(self, capasity=0):
+    def __init__(self, capacity=0):
         self.queue = collections.deque()
-        self.capasity = capasity
+        self.capacity = capacity
 
     def put(self, m):
-        if self.capasity and len(self.queue) >= self.capasity:
+        if self.capacity and len(self.queue) >= self.capacity:
             raise IndexError('Queue is full')
         else:
             self.queue.append(m)
@@ -23,13 +23,13 @@ class Channel:
         return self.queue.popleft()
 
     def is_space_for(self, n):
-        if not self.capasity:
+        if not self.capacity:
             return True
 
-        return True if len(self.queue) + n <= self.capasity else False
+        return True if len(self.queue) + n <= self.capacity else False
 
     def is_full(self):
-        return True if self.capasity and len(self.queue) >= self.capasity\
+        return True if self.capacity and len(self.queue) >= self.capacity\
             else False
 
     def is_empty(self):
