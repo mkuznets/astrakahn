@@ -4,6 +4,7 @@ import os
 import sys
 import inspect
 import hashlib
+from network import Network
 from multiprocessing import cpu_count
 
 import compiler.net as compiler
@@ -64,7 +65,8 @@ def get_net():
     cores['__output__'] = ('core', handler)
 
     # Compile network.
-    net = compiler.compile(code, cores, syncs)
+    net_comp = compiler.compile(code, cores, syncs)
+    net = Network(net_comp, nproc=4)
 
     # If initial input is defined, send it to network.
     if isinstance(caller.get('__input__'), dict):
@@ -81,7 +83,7 @@ def get_net():
 
 def start():
     net = get_net()
-    net.run(nproc=2)
+    net.run()
 
 
 def dump(network, hash, output_file=None):

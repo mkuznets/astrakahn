@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import components
-from network import Network
 from compiler.sync import parse as sync_parse
 from compiler.sync.backend import SyncBuilder
 from . import ast
@@ -265,9 +264,7 @@ class NetBuilder(ast.NodeVisitor):
         inputs = self.traverse(ast.inputs)
         outputs = self.traverse(ast.outputs)
 
-        obj = self.compile_net(ast, inputs, outputs)
-        network = Network(obj)
-        return network
+        return self.compile_net(ast, inputs, outputs)
 
     def compile_sync(self, sync, inputs, outputs):
         sb = SyncBuilder(inputs, outputs)

@@ -7,6 +7,7 @@ from . import ast
 from compiler.sync.backend import SyncBuilder
 from compiler.net.backend import NetBuilder
 
+import visitors
 
 class SyncParser(ast.NodeVisitor):
 
@@ -59,5 +60,24 @@ def compile(code, cores, syncs=None):
 
     # Generate runtime component network from AST.
     net = NetBuilder(cores).compile(net_ast)
+
+    # Cache of vertices in order to avoid network traversal.
+    gv = visitors.NetworkVisitor()
+    gv.traverse(net)
+
+    # Prepare net for execution.
+
+    net.make_root()
+    net.update_channels(0)
+
+    # Put references of channels into the vertices.
+    for path, vertex in gv.nets.items():
+        if path:
+            pn = net.get_parent_net(path)
+            pn.init_ext_streams(path[-1])
+
+    for path, vertex in gv.vertices.items():
+        pn = net.get_parent_net(path)
+        pn.update_channels(path[-1])
 
     return net

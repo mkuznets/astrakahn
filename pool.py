@@ -31,9 +31,6 @@ def core_wrapper(core, task_data):
         dispatch = {p: [comm.Record(msg) for msg in stream]
                     for p, stream in dispatch.items()}
 
-        if aux_data:
-            aux_data = comm.Record(aux_data)
-
         return Result(vertex_id, action, dispatch, aux_data)
 
 def print_error(err):

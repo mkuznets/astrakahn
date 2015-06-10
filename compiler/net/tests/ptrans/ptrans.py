@@ -12,7 +12,7 @@ import communication as comm
 
 
 def c_a(m):
-    '2T*'
+    '2T'
     n = m['n']
 
     for i in range(250 * (20 - n)):
@@ -24,11 +24,16 @@ __input__ = {'m': []}
 
 from random import randint
 
-for i in range(20):
+for i in range(10):
+    __input__['m'].append(comm.Record({'n': i}))
+
+__input__['m'].append(comm.SegmentationMark(1))
+
+
+for i in range(10):
     __input__['m'].append(comm.Record({'n': i}))
 
 __input__['m'].append(comm.SegmentationMark(0))
-
 
 import astrakahn
 astrakahn.start()

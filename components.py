@@ -37,7 +37,7 @@ class Node:
             for possible usage at runtime.
         executable (bool): indicates whether the node can accept and proccess
             messages by its own.
-        busy (bool): indicates that the node is processing message(s) and
+        _busy (bool): indicates that the node is processing message(s) and
             cannot read any more ones.
         departures (set of int): identifiers of output ports to which messages
             have been sent by the node.
@@ -55,7 +55,7 @@ class Node:
         self.ast = None
 
         self.executable = False
-        self.busy = False
+        self._busy = False
 
         self.departures = set()
 
@@ -67,6 +67,16 @@ class Node:
         self.outputs = {port_id: Port(name, port_id)
                         for port_id, name in enumerate(outputs)}
         self.masked_outputs = {}
+
+    #--------------------------------------------------------------------------
+
+    @property
+    def busy(self):
+        return self._busy
+
+    @busy.setter
+    def busy(self, value):
+        self._busy = bool(value)
 
     #--------------------------------------------------------------------------
 
@@ -350,6 +360,9 @@ class Net(Node):
         self.fire_nodes = set()
 
     #--------------------------------------------------------------------------
+
+    def get_parent_net(self, path):
+        return self.get_node_by_path(path[:-1])
 
     def get_node_by_path(self, path):
         '''
@@ -965,12 +978,30 @@ class SynchTable(Net):
 
 #--------------------------------------------------------------------------
 
-
 class Transductor(Box):
 
     def __init__(self, name, inputs, outputs, core):
         assert(len(inputs) == 1)
         super(Transductor, self).__init__(name, inputs, outputs, core)
+
+        self.max_inst = 1
+        self.n_inst = 0
+
+        self.msgs_unord = deque()
+        self.msgs_ord = {}
+        self.top = 0
+
+    #--------------------------------------------------------------------------
+
+    @property
+    def busy(self):
+        return self.n_inst >= self.max_inst or self._busy
+
+    @busy.setter
+    def busy(self, value):
+        pass
+
+    #--------------------------------------------------------------------------
 
     def is_ready(self):
         # Test if there's an input message.
@@ -989,18 +1020,70 @@ class Transductor(Box):
         assert(len(msgs) == 1)
         m = msgs[0]
 
+        if self.msgs_ord or self.msgs_unord:
+            if self._release():
+                self.put_back(0, m)
+                return None
+
         if m.is_segmark():
             # Special behaviour: segmentation marks are sent through.
-            self.send_to_all(m)
-            return None
+            if self.n_inst == 0:
+                self.send_to_all(m)
+                self.top = 0
+            else:
+                self.put_back(0, m)
+                self._busy = True
+        else:
+            self.n_inst += 1
+            return self._make_task(m.content)
 
-        return self._make_task(m.content)
+
+    def _release(self):
+
+        assert(self.msgs_ord or self.msgs_unord)
+
+        if self.msgs_ord:
+            if self.top in self.msgs_ord:
+                disp = self.msgs_ord.pop(self.top)
+                self.send_dispatch(disp)
+
+                self.top += 1
+
+                return 1
+
+        elif self.msgs_unord:
+            disp = self.msgs_unord.pop()
+            self.send_dispatch(disp)
+            return 1
+
+        return 0
+
 
     def commit(self, response):
 
+        self.n_inst -= 1
+
         if response.action == 'send':
-            # Send output messages.
-            self.send_dispatch(response.dispatch)
+
+            # Queue
+
+            priority = response.aux_data
+
+            if type(priority) is int:
+                assert(priority >= 0)
+                assert(priority not in self.msgs_ord)
+                self.msgs_ord[priority] = response.dispatch
+
+            else:
+                self.msgs_unord.appendleft(response.dispatch)
+
+            # Send
+            if self.is_output_unblocked():
+                self._release()
+
+            if self.n_inst == 0:
+                self._busy = False
+
         else:
             print(response.action, 'is not implemented.')
 
@@ -1070,7 +1153,7 @@ class Inductor(Box):
 
         if response.action == 'continue':
 
-            cont = response.aux_data
+            cont = comm.Record(response.aux_data)
 
             # Put the continuation back to the input queue
             self.put_back(0, cont)
@@ -1148,7 +1231,7 @@ class DyadicReductor(Box):
 
             # Put partial reduction result to the first input channel for
             # further reduction.
-            self.put_back(0, response.aux_data)
+            self.put_back(0, comm.Record(response.aux_data))
 
         else:
             print(response.action, 'is not implemented.')
@@ -1233,7 +1316,7 @@ class MonadicReductor(Box):
 
             # Put partial reduction result to the first input channel for
             # further reduction.
-            self.put_back(0, response.aux_data)
+            self.put_back(0, comm.Record(response.aux_data))
 
         else:
             print(response.action, 'is not implemented.')
