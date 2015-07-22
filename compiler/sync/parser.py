@@ -340,6 +340,7 @@ def p_data_exp(p):
     '''
     data_exp : term_list
              | LPAREN term_list RPAREN
+             | LBRACE term_list RBRACE
     '''
     data = p[1] if len(p) == 2 else p[2]
     p[0] = ast.DataExp(data)
