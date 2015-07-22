@@ -320,6 +320,26 @@ class Trans(Node):
 
     attr_names = ()
 
+class CondChoice(Node):
+    def __init__(self, choice, pattern, tail, coord=None):
+        self.choice = choice
+        self.pattern = pattern
+        self.tail = tail
+        self.coord = coord
+
+    def children(self, expand=False):
+        nodelist = []
+        if self.choice is not None: nodelist.append(("choice", self.choice))
+        if self.tail is not None: nodelist.append(("tail", self.tail))
+        if expand:
+            for i, child in enumerate(self.pattern or []):
+                nodelist.append(("pattern[%d]" % i, child))
+        else:
+            nodelist.append(("pattern", list(self.pattern) or []))
+        return tuple(nodelist)
+
+    attr_names = ()
+
 class CondSegmark(Node):
     def __init__(self, depth, pattern, tail, coord=None):
         self.depth = depth

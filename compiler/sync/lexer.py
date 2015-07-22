@@ -8,7 +8,7 @@ tokens = keywords + [
     'RBRACKET', 'COLON', 'PLUS', 'MINUS', 'MULT', 'DIVIDE', 'MOD', 'SHL',
     'SHR', 'LE', 'GE', 'GEQ', 'LEQ', 'EQ', 'NEQ', 'NOT', 'BAND', 'BOR', 'BXOR',
     'LAND', 'LOR', 'COMMA', 'DOT', 'AT', 'TO', 'ASSIGN', 'SCOLON',
-    'APOSTR'
+    'APOSTR', 'QM'
 ]
 
 # Tokens
@@ -46,6 +46,7 @@ t_TO            = r'=>'
 t_ASSIGN        = r'='
 t_SCOLON        = r';'
 t_APOSTR        = r"\'"
+t_QM            = r"\?"
 t_ignore_COMMENT = r'\#.*'
 
 keywords_map = {k.lower(): k for k in keywords}

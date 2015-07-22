@@ -393,6 +393,9 @@ class SyncBuilder(ast.NodeVisitor):
         return ConditionSegmark(children['depth'], children['pattern'],
                                 children['tail'])
 
+    def visit_CondChoice(self, node, children):
+        return ConditionData(children['pattern'], children['tail'])
+
     def visit_CondDataMsg(self, node, children):
         return ConditionData(children['pattern'], children['tail'])
 

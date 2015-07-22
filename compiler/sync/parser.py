@@ -260,22 +260,20 @@ def p_cond_else(p):
 
 def p_cond_msg(p):
     '''
-    cond_msg : segmark_opt pattern_opt
+    cond_msg : AT VID pattern_opt
+             | QM VID pattern_opt
+             | pattern_opt
     '''
 
-    if p[1].value is not None:
-        p[0] = ast.CondSegmark(depth=p[1], **p[2])
+    if len(p) == 4:
+        if p[1] == '@':
+            p[0] = ast.CondSegmark(depth=p[2], **p[3])
+
+        elif p[1] == '?':
+            p[0] = ast.CondChoice(choice=p[2], **p[3])
 
     else:
-        p[0] = ast.CondDataMsg(**p[2])
-
-
-def p_segmark_opt(p):
-    '''
-    segmark_opt : AT VID
-                | empty
-    '''
-    p[0] = p[2] if len(p) == 3 else ast.TERM(None)
+        p[0] = ast.CondDataMsg(**p[3])
 
 
 def p_pattern_opt(p):
@@ -434,10 +432,10 @@ def p_msg_exp(p):
 
 def p_choice_opt(p):
     '''
-    choice_opt : VID
+    choice_opt : QM VID
                | empty
     '''
-    p[0] = p[1] or ast.ID('uniq')
+    p[0] = p[2] if len(p) == 3 else ast.ID('uniq')
 
 
 def p_goto_stmt_opt(p):
