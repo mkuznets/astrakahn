@@ -33,10 +33,6 @@ class NetworkVisitor:
         if hasattr(node, 'nodes'):
             self.nets.update(c)
 
-            import components
-            if isinstance(node, components.PTransductor):
-                self.ptrans.add(node)
-
         if node.executable:
             self.vertices.update(c)
 
