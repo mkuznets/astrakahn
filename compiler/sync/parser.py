@@ -273,7 +273,7 @@ def p_cond_msg(p):
             p[0] = ast.CondChoice(choice=p[2], **p[3])
 
     else:
-        p[0] = ast.CondDataMsg(**p[3])
+        p[0] = ast.CondDataMsg(**p[1])
 
 
 def p_pattern_opt(p):
