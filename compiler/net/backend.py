@@ -48,8 +48,8 @@ class NetBuilder(ast.NodeVisitor):
 
     def visit_SynchTab(self, node, _):
         'final'
-        inputs = [p.name.value for p in node.sync.inputs.ports]
-        outputs = [p.name.value for p in node.sync.outputs.ports]
+        inputs = [p.name.value for p in node.sync.ast.inputs.ports]
+        outputs = [p.name.value for p in node.sync.ast.outputs.ports]
         return ('synchtab', node.sync.name, node, inputs, outputs)
 
     def visit_Synchroniser(self, node, _):
@@ -134,8 +134,8 @@ class NetBuilder(ast.NodeVisitor):
                     obj = self.compile_sync(decl[2], inputs, outputs)
 
                 elif decl[0] == 'synchtab':
-                    labels = scope[node.name][3]
-                    obj = self.compile_synchtab(node.name, decl.ast, labels)
+                    labels = decl[2].labels
+                    obj = self.compile_synchtab(node.name, decl[2].sync.ast, labels)
 
                 else:
                     raise ValueError('Node %s is of unknown type: `%s\''

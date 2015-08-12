@@ -259,7 +259,7 @@ class IntExp(BaseExp):
 
     def compute(self, scope):
 
-        args = []
+        kwargs = {}
 
         for arg_name in self.func.__code__.co_varnames:
 
@@ -276,9 +276,9 @@ class IntExp(BaseExp):
                 ]
                 raise RuntimeError("\n".join(err))
 
-            args.append(arg_value)
+            kwargs[arg_name] = arg_value
 
-        return int(self.func(*args))
+        return int(self.func(**kwargs))
 
 
 #------------------------------------------------------------------------------
@@ -457,7 +457,7 @@ class SyncBuilder(ast.NodeVisitor):
         values = {key: term.value for key, term in node.terms.items()}
         args = [term for term in values.values() if type(term) is str]
 
-        code = 'lambda %s: %s' % (', '.join(args),
+        code = 'lambda %s: %s' % (', '.join(set(args)),
                                   node.exp.format(**values))
 
         try:

@@ -278,11 +278,19 @@ def p_cond_msg(p):
 
 def p_pattern_opt(p):
     '''
-    pattern_opt : LPAREN id_list tail_opt RPAREN
+    pattern_opt : LPAREN id_list_opt tail_opt RPAREN
                 | empty
     '''
     pattern, tail = (p[2], p[3]) if len(p) > 2 else ([], ast.TERM(None))
     p[0] = {'pattern': pattern, 'tail': tail}
+
+
+def p_id_list_opt(p):
+    '''
+    id_list_opt : id_list
+                | empty
+    '''
+    p[0] = p[1] or []
 
 
 def p_tail_opt(p):

@@ -755,11 +755,18 @@ class SynchTable(Net):
     def run(self, msgs):
         msg = msgs[0]
 
+        if msg.is_segmark():
+            for _, sync in self.syncs.items():
+                self.fire_nodes.add(sync.path)
+                sync.put(self.ready_port, msg)
+
+            return None
+
         label_values = []
 
-        if self.labels not in msg:
-            raise RuntimeError('Label %s is not found in the message %s' %
-                               (label, msg))
+        if not all(label in msg for label in self.labels):
+            raise RuntimeError('Label %s is not found in the message' %
+                               (str(self.labels)))
 
         st = tuple(msg[label] for label in self.labels)
 
@@ -795,10 +802,7 @@ class SynchTable(Net):
 
             self.update_channels(syncid)
 
-        self.show()
-
         # Route the message to corresponding sync.
-
         sync = self.syncs[st]
         self.fire_nodes.add(sync.path)
         sync.put(self.ready_port, msg)
@@ -1182,6 +1186,7 @@ class Merger(Vertex):
                 self.nterm += 1
                 if self.nterm == self.n_inputs:
                     self.send_to_all(m)
+                    self.nterm = 0
             else:
                 self.send_to_all(m)
         return None
