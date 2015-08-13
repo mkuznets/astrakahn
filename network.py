@@ -102,11 +102,16 @@ class Network:
             self.potential.clear()
             #------------------------------------------------------------------
 
-            # Check for responses from processing pool.
             while True:
-                try:
-                    response = self.pm.out_queue.get(not bool(self.ready))
-                except Empty:
+
+                # Check for responses from processing pool.
+                if not bool(self.ready):
+                    response = self.pm.out_qc.recv()
+
+                elif self.pm.out_qc.poll():
+                    response = self.pm.out_qc.recv()
+
+                else:
                     break
 
                 vertex = self.get_by_path(response.vertex_id)

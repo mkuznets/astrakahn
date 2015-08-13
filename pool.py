@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from multiprocessing import Process, Pool, Array, Queue
+from multiprocessing import Process, Pool, Array, Queue, Pipe
 import collections
 
 import os
@@ -48,8 +48,8 @@ class PoolManager:
 
     def __init__(self, nproc):
         self.nproc = nproc
-        self.in_queue = Queue()
-        self.out_queue = Queue()
+        self.in_qc, self.in_qp = Pipe()
+        self.out_qc, self.out_qp = Pipe()
 
         self.pm = Process(target=self.manager)
 
@@ -70,19 +70,19 @@ class PoolManager:
               "\t", '%06.2f%%' % ((time.time() - result.tm[3])/ot * 100)
         )
 
-        self.out_queue.put(result)
+        self.out_qp.send(result)
 
     def enqueue(self, core, task_data):
         name = core.__name__
         core_serialized = (name, marshal.dumps(core.__code__))
-        self.in_queue.put((core_serialized, task_data))
+        self.in_qp.send((core_serialized, task_data))
 
     def manager(self):
 
         pool = Pool(processes=self.nproc, )
 
         while True:
-            task = self.in_queue.get()
+            task = self.in_qc.recv()
             ttask = task + (time.time(), )
             pool.apply_async(core_wrapper, ttask, callback=self.dispatch_result,
                              error_callback=print_error)
