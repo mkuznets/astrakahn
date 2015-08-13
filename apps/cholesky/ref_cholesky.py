@@ -2,20 +2,9 @@
 
 import numpy as np
 
-def gen_spd(m, n):
+m, n = 16, 128
 
-    while True:
-        dim = m * n
-        mrand = np.random.rand(dim, dim)
-        msym = mrand + mrand.T
-
-        msym += dim * np.eye(dim)
-
-        assert(all(np.linalg.eigvals(msym) > 1e-5))
-        return msym
-
-m, n = 4, 20
-A = gen_spd(m, n)
+A = np.load('spd_%dx%d.dmp' % (m, n))
 AA = A.copy()
 
 AB = [np.hsplit(B, m) for B in np.vsplit(A, m)]

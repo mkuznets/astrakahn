@@ -32,20 +32,22 @@ def c_splitter(m):
     from collections import deque
 
     if 'blocks' not in m:
-        MB = [np.hsplit(B, m['Nb']) for B in np.vsplit(m['A'], m['Nb'])]
-
         blocks = deque()
+
+        bsz = m['d'] // m['Nb']
 
         for i in range(m['Nb']):
             for j in range(i+1):
-                blocks.append({'Nb': m['Nb'], 'i': i, 'j': j,
-                               'Aij': MB[i][j]})
+                sl = (slice(i*bsz, (i+1)*bsz), slice(j*bsz, (j+1)*bsz))
+                A = m['A'].copy()
+                A[sl]
+                blocks.append({'Nb': m['Nb'], 'i': i, 'j': j, 'Aij': A})
 
         m['blocks'] = blocks
 
     msg = m['blocks'].popleft()
 
-    print('Coord', msg['i'], msg['j'])
+    #print('Coord', msg['i'], msg['j'])
 
     return ('continue' if m['blocks'] else 'terminate',
             {0: [msg]},
@@ -80,27 +82,63 @@ synch Router (_1 | _1, _2, _3)
 def c_InitFact(m):
     '2T'
     import numpy as np
-    m['Lij'] = np.linalg.cholesky(m['Aij'])
-    m['Nr'] = m['Nb'] - m['i'] - 1
+
+    sAij = m['Aij']
+    Aij = sAij.open()
+
+    t = np.linalg.cholesky(Aij)
+    Aij[:][:] = t
+
+    # Clean up shared object.
+    del Aij
+    sAij.close()
+
+    m['Lij'] = sAij
     del m['Aij']
-    r = {'Lij': m['Lij'], 'Nb': m['Nb'], 'i': m['i'], 'j': m['j']}
+    m['Nr'] = m['Nb'] - m['i'] - 1
+
+    r = {'Lij': sAij, 'Nb': m['Nb'], 'i': m['i'], 'j': m['j']}
     return ('send', {0: [m], 1: [r]}, None)
 
 
 def c_TrigSolve(m):
     '2T'
     import numpy as np
-    m['Lij'] = np.dot(m['Aij'], np.linalg.inv(m['Lij'].T))
+
+    sAij, sLij = m['Aij'], m['Lij']
+    Aij, Lij = sAij.open(), sLij.open()
+
+    t = np.dot(Aij, np.linalg.inv(Lij.T))
+    Aij[:][:] = t
+
+    # Clean up shared object.
+    del Aij, Lij
+    sAij.close()
+    sLij.close()
+
     m['Nr'] = m['Nb']
+    m['Lij'] = sAij
     del m['Aij']
-    r = {'Lij': m['Lij'], 'Nb': m['Nb'], 'i': m['i'], 'j': m['j']}
+
+    r = {'Lij': sAij, 'Nb': m['Nb'], 'i': m['i'], 'j': m['j']}
     return ('send', {0: [m], 1: [r]}, None)
 
 
 def c_SymRank(m):
     '1T'
     import numpy as np
-    m['Aij'] -= np.dot(m['Lik'], m['Ljk'].T)
+
+    sAij, sLik, sLjk = m['Aij'], m['Lik'], m['Ljk']
+    Aij, Lik, Ljk = sAij.open(), sLik.open(), sLjk.open()
+
+    t = Aij - np.dot(Lik, Ljk.T)
+    Aij[:][:] = t
+
+    del Aij, Lik, Ljk
+    sAij.close()
+    sLik.close()
+    sLjk.close()
+
     del m['Lik'], m['Ljk']
     return ('send', {0: [m]}, None)
 
@@ -112,6 +150,7 @@ def c_dupl(m):
 
     m['Nr'] -= 1
     msg = m.copy()
+    msg['Lij'] = m['Lij'].copy()
     del msg['Nr']
 
     return ('continue', {0: [msg]}, m)
@@ -125,6 +164,8 @@ def c_dupl2(m):
             + [(m['i'], i) for i in range(m['j']+1, m['i']+1)]
 
     msg = m.copy()
+    msg['Lij'] = m['Lij'].copy()
+
     msg['i'], msg['j'] = m['idxs'].pop()
     msg['ii'] = m['i']
     del msg['idxs']
@@ -354,43 +395,48 @@ def c_ResultCombiner(ma, mb):
     '1MO'
     import numpy as np
 
-    if 'cols' not in ma:
-        ma['Nc'], ma['Nz'] = 1, 0
-        ma['cols'] = []
-        ma['blocks'] = {ma['i']: ma['Lij']}
+    if 'blocks' not in ma:
+        ma['blocks'] = set((i, j) for i in range(ma['Nb']) for j in range(i+1))
+        ma['blocks'].remove((ma['i'], ma['j']))
 
-    ma['blocks'][mb['i']] = mb['Lij']
-    ma['Nc'] += 1
 
-    if not ma['Nc'] % ma['Nb']:
-        col = np.vstack([ma['blocks'][i] for i in range(ma['Nb'])])
-        ma['cols'].append(col)
+    ma['blocks'].remove((mb['i'], mb['j']))
 
-        ma['blocks'].clear()
-        ma['Nz'] += 1
+    if not ma['blocks']:
+        ma['Lij'].key = None
 
-        for i in range(ma['Nz']):
-            ma['blocks'][i] = np.zeros(mb['Lij'].shape)
-            ma['Nc'] += 1
+        A = ma['Lij'].open()
+        A[:][:] = np.tril(A)
 
-        if len(ma['cols']) == ma['Nb']:
-            ma['A'] = np.hstack(ma['cols'])
-            del ma['cols']
-            del ma['blocks']
+        del A
+        ma['Lij'].close()
 
-    return ('partial', {},
-            ma if (ma['Nc'] < ma['Nb'] * ma['Nb']) else {'A': ma['A']})
+        return ('partial', {}, {'A': ma['Lij']})
+
+    else:
+        return ('partial', {}, ma)
 
 #------------------------------------------------------------------------------
 
 import numpy as np
+import shmem
+import ctypes
 
 
 m, n = 16, 128
+d = m * n
+
 A = np.load('spd_%dx%d.dmp' % (m, n))
 
+sA = shmem.Array('A', ('D', d, d))
+sAv = sA.open()
+sAv[:] = A
+
+del sAv
+sA.close()
+
 __input__ = {'in': [
-    comm.Record({'A': A, 'Nb': m}),
+    comm.Record({'A': sA, 'Nb': m, 'd': d}),
     comm.SegmentationMark(0)
 ]}
 
@@ -404,9 +450,15 @@ def __output__(stream):
     for i, ch, msg in stream:
         content = msg.content
 
-        arrays = [k for k, v in content.items() if type(v) == np.ndarray]
-        for k in arrays:
-            content[k] = content[k].shape
+        #arrays = [k for k, v in content.items() if type(v) == np.ndarray]
+        #for k in arrays:
+        #    content[k] = content[k].shape
+
+        #if 'A' in content:
+        #    A = content['A'].open()
+        #    A.dump('sol')
+        #    del A
+        #    content['A'].close
 
         print(time.time(), 'O: %s: %s' % (ch, content))
 
