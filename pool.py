@@ -62,15 +62,18 @@ class PoolManager:
         self.pm.join()
 
     def dispatch_result(self, result):
-        ot = time.time() - result.tm[0]
-        print(result.vertex_id, "\t", '%07f' % ot, "\t"
 
-              "\t", '%06.2f%%' % (result.tm[1]/ot * 100),
-              "\t", '%06.2f%%' % (result.tm[2]/ot * 100),
-              "\t", '%06.2f%%' % ((time.time() - result.tm[3])/ot * 100)
-        )
+        if result.tm:
+            ot = time.time() - result.tm[0]
 
-        self.out_qp.send(result)
+            prof = (result.tm[1]/ot,
+                    result.tm[2]/ot,
+                    (time.time() - result.tm[3])/ot
+            )
+        else:
+            prof = None
+
+        self.out_qp.send((result, prof))
 
     def enqueue(self, core, task_data):
         name = core.__name__

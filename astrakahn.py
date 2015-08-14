@@ -72,6 +72,17 @@ def get_net():
     if isinstance(caller.get('__input__'), dict):
         net.init_input(caller['__input__'])
 
+    if caller.get('__profile__'):
+        with open(caller.get('__profile__'), 'rb') as p:
+            import pickle
+            profile = pickle.load(p)
+
+            for vid, prof in profile.items():
+                if prof < 0.8:
+                    print('Disable ext run:', vid)
+                    vertex = net.get_by_path(vid)
+                    vertex.run_ext = False
+
     ## Save compiled network to cache file.
     #dump(net, src_hash, os.path.join(path, '%s.rt' % name))
 

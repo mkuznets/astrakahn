@@ -6,6 +6,11 @@ import sys
 import pool
 import time
 import visitors
+import communication as comm
+import collections
+
+Result = collections.namedtuple('Result',
+                                'vertex_id action dispatch aux_data tm')
 
 from queue import Empty as Empty
 
@@ -27,6 +32,9 @@ class Network:
 
         self.ready = set()
         self.potential = set()
+
+        self.profile = {}
+        self.n_events = {}
 
     def show(self):
         self.network.show()
@@ -83,11 +91,30 @@ class Network:
             msgs = vertex.fetch()
             task = vertex.run(msgs)
 
-            if task:
-                self.pm.enqueue(*task)
-                vertex.busy = True
+            response = None
 
-                self.potential.add(vertex.path)
+            if task:
+
+                if vertex.run_ext:
+                    self.pm.enqueue(*task)
+                    vertex.busy = True
+
+                    self.potential.add(vertex.path)
+
+                else:
+                    core, p = task
+                    output = core(*p['args'])
+
+                    if output is None:
+                        response = Result(vertex_id, '', {}, None, None)
+
+                    else:
+                        action, dispatch, aux_data = output
+
+                        dispatch = {p: [comm.Record(msg) for msg in stream]
+                                    for p, stream in dispatch.items()}
+
+                        response = Result(vertex_id, action, dispatch, aux_data, None)
 
             else:
                 self._impact(vertex)
@@ -104,15 +131,33 @@ class Network:
 
             while True:
 
-                # Check for responses from processing pool.
-                if not bool(self.ready):
-                    response = self.pm.out_qc.recv()
+                try:
+                    if response:
+                        prof = None
 
-                elif self.pm.out_qc.poll():
-                    response = self.pm.out_qc.recv()
+                    # Check for responses from processing pool.
+                    elif not bool(self.ready):
+                        response, prof = self.pm.out_qc.recv()
 
-                else:
-                    break
+                    elif self.pm.out_qc.poll():
+                        response, prof = self.pm.out_qc.recv()
+
+                    else:
+                        break
+
+                except KeyboardInterrupt as e:
+                    pinfo = {v: p/self.n_events[v] for v, p in self.profile.items()}
+                    #import pickle
+                    #pickle.dump(pinfo, open('pinfo', 'wb'))
+                    print(pinfo)
+                    return
+
+                # Record profiling info
+                if prof:
+                    vid = response.vertex_id
+                    self.profile[vid] = self.profile.get(vid, 0) + prof[0]
+                    self.n_events[vid] = self.n_events.get(vid, 0) + 1
+                #---------------------
 
                 vertex = self.get_by_path(response.vertex_id)
 
@@ -131,6 +176,8 @@ class Network:
                         self.ready.add(vid)
                 self.potential.clear()
                 #--------------------------------------------------------------
+
+                response = None
 
         self.pm.finish()
 

@@ -645,6 +645,7 @@ class Box(Vertex):
 
         self._core = None
         self.core = core
+        self.run_ext = True
 
     @property
     def core(self):

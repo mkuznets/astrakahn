@@ -423,7 +423,7 @@ import shmem
 import ctypes
 
 
-m, n = 16, 128
+m, n = 8, 400
 d = m * n
 
 A = np.load('spd_%dx%d.dmp' % (m, n))
@@ -461,6 +461,8 @@ def __output__(stream):
         #    content['A'].close
 
         print(time.time(), 'O: %s: %s' % (ch, content))
+
+__profile__ = 'pinfo'
 
 import astrakahn
 astrakahn.start()
