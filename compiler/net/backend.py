@@ -204,37 +204,6 @@ class NetBuilder(ast.NodeVisitor):
 
         if node.op == '*':
             pass
-            #if len(operand) != 1:
-            #    raise ValueError('*-operator can be applied to net only.')
-
-            #net = operand.pop()
-
-            #if type(net) is not components.Net:
-            #    raise ValueError('*-operator can be applied to net only.')
-
-            #if len(inputs) != 1 or len(outputs) != 3:
-            #    raise ValueError('Stage layout: wrong number of inpus or outputs')
-
-            #stage_port = list(inputs)[0]
-
-            #if (stage_port not in outputs) or ('__output__' not in outputs):
-            #    raise ValueError('Stage layout: wrong channel naming.')
-
-            #mrgr = components.Merger('__star_output__', ['__exit__'], [stage_port])
-            #mrgr.id = self._get_node_id()
-
-            #star_net = components.StarNet('__' + net.name + '_fps__',
-            #                              [stage_port], [stage_port],
-            #                              [net, mrgr])
-            #star_net.id = self._get_node_id()
-
-            #star_net.stages.append(net)
-            #star_net.stage_port = stage_port
-            #star_net.merger = mrgr
-
-            #star_net.wire_stages()
-
-            #operand = set((star_net,))
 
         elif node.op == '\\':
 
