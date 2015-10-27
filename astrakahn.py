@@ -53,7 +53,7 @@ def get_net():
     code = caller['__doc__']
 
     # Extract definitions of core functions and synchronisers.
-    cores = {n[2:]: ('core', g) for n, g in caller.items()\
+    cores = {n[2:]: g for n, g in caller.items()\
              if inspect.isfunction(g) and n.startswith('c_')}
 
     syncs = {n[2:]: g for n, g in caller.items()\
@@ -62,7 +62,7 @@ def get_net():
     # Add handler function to core function list.
     is_custom_handler = inspect.isfunction(caller.get('__output__'))
     handler = caller['__output__'] if is_custom_handler else __output__
-    cores['__output__'] = ('core', handler)
+    cores['__output__'] = handler
 
     # Compile network.
     net_comp = compiler.compile(code, cores, syncs)
@@ -94,7 +94,7 @@ def get_net():
 
 def start():
     net = get_net()
-    net.run()
+    #net.run()
 
 
 def dump(network, hash, output_file=None):

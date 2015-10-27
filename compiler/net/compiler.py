@@ -3,9 +3,10 @@
 from . import lexer as net_lexer
 from . import parser as net_parser
 from . import ast
+from . import ast
 
 from compiler.sync.backend import SyncBuilder
-from compiler.net.backend import NetBuilder
+from compiler.net.graph import NetBuilder
 
 import visitors
 
@@ -43,12 +44,12 @@ def parse(code, syncs=None, output_handler=True):
         SyncParser(syncs).traverse(net_ast)
 
     # Manually add and connect handler vertex before net output.
-    if output_handler:
-        wiring = net_ast.wiring
-        outputs = [p.value for p in net_ast.outputs.ports]
-        #
-        v = ast.Vertex(outputs, outputs, '__output__', None)
-        net_ast.wiring = ast.BinaryOp('..', wiring, v)
+    #if output_handler:
+    #    wiring = net_ast.wiring
+    #    outputs = [p.value for p in net_ast.outputs.ports]
+    #    #
+    #    v = ast.Vertex(outputs, outputs, '__output__', None)
+    #    net_ast.wiring = ast.BinaryOp('..', wiring, v)
 
     return net_ast
 
@@ -60,6 +61,17 @@ def compile(code, cores, syncs=None):
 
     # Generate runtime component network from AST.
     net = NetBuilder(cores).compile(net_ast)
+
+    for n in net.nodes(data=True):
+        print(n)
+
+    print()
+
+    for e in net.edges(data=True):
+        print(e)
+
+    quit()
+
 
     # Cache of vertices in order to avoid network traversal.
     gv = visitors.NetworkVisitor()
