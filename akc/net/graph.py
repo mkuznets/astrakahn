@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# from compiler.sync import parse as sync_parse
-# from compiler.sync.backend import SyncBuilder
 from . import ast
 
 import re

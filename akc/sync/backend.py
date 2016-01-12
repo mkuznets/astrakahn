@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
-import components
-import communication as comm
 from collections import Sequence
+
 from . import ast
+import akc.sync.sync as components
 
 #------------------------------------------------------------------------------
 

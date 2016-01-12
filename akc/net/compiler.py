@@ -5,10 +5,8 @@ from . import parser as net_parser
 from . import ast
 from . import ast
 
-from compiler.sync.backend import SyncBuilder
-from compiler.net.graph import NetBuilder
-
-import visitors
+#from akc.sync.backend import SyncBuilder
+from akc.net.graph import NetBuilder
 
 class SyncParser(ast.NodeVisitor):
 
@@ -22,7 +20,7 @@ class SyncParser(ast.NodeVisitor):
 
         src_code = self.syncs[node.name]
 
-        from compiler.sync import parse as sync_parse
+        from akc.sync.compiler import parse as sync_parse
         sync_ast = sync_parse(src_code, node.macros)
 
         node.ast = sync_ast
@@ -71,25 +69,5 @@ def compile(code, cores, syncs=None):
         print(e)
 
     quit()
-
-
-    # Cache of vertices in order to avoid network traversal.
-    gv = visitors.NetworkVisitor()
-    gv.traverse(net)
-
-    # Prepare net for execution.
-
-    net.make_root()
-    net.update_channels(0)
-
-    # Put references of channels into the vertices.
-    for path, vertex in gv.nets.items():
-        if path:
-            pn = net.get_parent_net(path)
-            pn.init_ext_streams(path[-1])
-
-    for path, vertex in gv.vertices.items():
-        pn = net.get_parent_net(path)
-        pn.update_channels(path[-1])
 
     return net
