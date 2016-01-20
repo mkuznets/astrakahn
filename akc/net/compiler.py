@@ -5,7 +5,6 @@ from . import parser as net_parser
 from . import ast
 from . import ast
 
-#from akc.sync.backend import SyncBuilder
 from akc.net.graph import NetBuilder
 
 class SyncParser(ast.NodeVisitor):
