@@ -59,14 +59,4 @@ def compile(code, cores, syncs=None):
     # Generate runtime component network from AST.
     net = NetBuilder(cores).compile(net_ast)
 
-    for n in net.nodes(data=True):
-        print(n)
-
-    print()
-
-    for e in net.edges(data=True):
-        print(e)
-
-    quit()
-
     return net

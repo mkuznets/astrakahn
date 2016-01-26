@@ -11,10 +11,16 @@ from functools import reduce
 
 class DiGraph(nx.DiGraph):
     merge_nonce = 1
+    entry = []
+    exit = []
 
     def add_vertex(self, vtx):
-        self.add_node(vtx.name)
-        self.node[vtx.name]['vtx'] = vtx
+        # NOTE: O(N) !!!
+        nonce = sum(1 for n in self.nodes() if n.startswith(vtx.name))
+        node_name = '%s:%d' % (vtx.name, nonce)
+        self.add_node(node_name)
+        self.node[node_name]['vtx'] = vtx
+        return node_name
 
     def add_wire(self, lnode, rnode, port):
         self.add_edge(lnode, rnode)
@@ -26,8 +32,7 @@ class DiGraph(nx.DiGraph):
         self.merge_nonce += 1
 
         merger = Sync(name, inputs, outputs, None, None)
-        self.add_vertex(merger)
-        return name
+        return self.add_vertex(merger)
 
     def connect(self, lnbunch, rnbunch):
 
@@ -94,7 +99,7 @@ class DiGraph(nx.DiGraph):
 
                 new_names = [p[1] for p in dports]
 
-                mrg = self.add_merger([port] if side == 'out' else new_names,
+                mrg = self.add_merger(new_names if side == 'out' else [port],
                                       new_names if side == 'in' else [port])
                 mergers.add(mrg)
 
@@ -112,6 +117,71 @@ class DiGraph(nx.DiGraph):
         mergers_right = self._flatten_side('out', nbunch)
 
         return mergers_left | mergers_right
+
+    def _set_in_out(self):
+        inputs = self._port_to_nodes_map('in', self.nodes())
+        self.entry = {port: nodes[0] for port, nodes in inputs.items()}
+
+        outputs = self._port_to_nodes_map('out', self.nodes())
+        self.exit = {port: nodes[0] for port, nodes in outputs.items()}
+
+    def _bb_rename(self):
+
+        # Add `stmts' attribute to nodes.
+        nodes_stmt = ((n, {'stmts': [(attrs['vtx'].name, attrs['vtx'])]})
+                      for n,attrs in self.nodes(data=True))
+        self.add_nodes_from(nodes_stmt)
+
+        # Remove `vtx'
+        for n in self.nodes():
+            del self.node[n]['vtx']
+
+        # Rename vertices to BBs.
+        bb_map = {n: 'bb_%d' % i for i,n in enumerate(self.nodes())}
+        nx.relabel_nodes(self, bb_map, copy=False)
+
+        self.entry = {port: bb_map[node] for port,node in self.entry.items()}
+        self.exit = {port: bb_map[node] for port,node in self.exit.items()}
+
+    def _bb_squash(self):
+
+        # Add entry nodes.
+        stack = list(self.entry.values())
+        visited = set()
+
+        while stack:
+            n = stack.pop()
+            visited.add(n)
+
+            out_nodes = [d for s,d in self.out_edges(n)]
+
+            # Single destination having single source: combine BBs.
+            if len(out_nodes) == 1 and len(self.in_edges(out_nodes[0])) == 1:
+
+                dest_node = out_nodes.pop()
+
+                # Add new statement.
+                self.node[n]['stmts'] += self.node[dest_node]['stmts']
+
+                # Attach vertex's out edges to the BB.
+                out_edges = ((n, d, self.edge[s][d])
+                             for s,d in self.out_edges(dest_node))
+                self.add_edges_from(out_edges)
+
+                # Remove the squashed vertex.
+                self.remove_node(dest_node)
+
+                # Schedule the for further statement squashing.
+                stack.append(n)
+                visited.remove(n)
+
+            else:
+                # Add all destinations for traveral.
+                stack += filter(lambda x: x not in visited, out_nodes)
+
+    def convert_to_ir(self):
+        self._bb_rename()
+        self._bb_squash()
 
 
 class NetBuilder(ast.NodeVisitor):
@@ -138,7 +208,7 @@ class NetBuilder(ast.NodeVisitor):
     # -------------------------------------------------------------------------
 
     def generic_visit(self, node, children):
-        print('Generic', node)
+        raise NotImplementedError('Handler missed: %s' % type(node))
 
     def get_net(self):
         assert self.net_stack
@@ -180,9 +250,11 @@ class NetBuilder(ast.NodeVisitor):
         scope = self.scope()
         net = self.get_net()
 
+        name_id = None
+
         if node.name == '~':
             assert type(node.inputs) is type(node.outputs) is list
-            net.add_merger(node.inputs, node.outputs)
+            name_id = net.add_merger(node.inputs, node.outputs)
 
         elif node.name in scope:
             vertex = copy.copy(scope[node.name])
@@ -192,16 +264,16 @@ class NetBuilder(ast.NodeVisitor):
             vertex.rename('out', node.outputs)
 
             # Add vertex to network.
-            net.add_vertex(vertex)
+            name_id = net.add_vertex(vertex)
 
             if isinstance(vertex, Net):
                 subnet = self.compile_net(vertex)
-                net.node[vertex.name]['net'] = subnet
+                net.node[name_id]['net'] = subnet
 
         else:
             raise ValueError('Node %s is undefined.' % node.name)
 
-        return set((vertex.name,))
+        return set((name_id,))
 
     def visit_BinaryOp(self, node, children):
 
@@ -275,6 +347,7 @@ class NetBuilder(ast.NodeVisitor):
         self.traverse(net.wiring)
 
         graph.graph['net'] = net
+        graph._set_in_out()
 
         self.scope_stack.pop()
         self.net_stack.pop()
@@ -303,7 +376,7 @@ class Decl(object):
         ports = getattr(self, attr)
 
         i = ports.index(port)
-        ports[i] = '%s%%%d' % (ports[i], nonce)
+        ports[i] = '%s|%d' % (ports[i], nonce)
 
         return ports[i]
 
