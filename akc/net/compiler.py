@@ -57,6 +57,6 @@ def compile(code, cores, syncs=None):
     net_ast = parse(code, syncs)
 
     # Generate runtime component network from AST.
-    net = NetBuilder(cores).compile(net_ast)
+    net, defs = NetBuilder(cores).compile(net_ast)
 
-    return net
+    return net, defs

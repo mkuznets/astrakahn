@@ -11,8 +11,22 @@ from functools import reduce
 
 class DiGraph(nx.DiGraph):
     merge_nonce = 1
-    entry = []
-    exit = []
+    entry = None
+    exit = None
+
+    def pprint(self):
+        for node in self.nodes(data=True):
+            print(node)
+
+        print()
+
+        for edge in self.edges(data=True):
+            print(edge)
+
+        print()
+
+        print('Entry:', self.entry)
+        print('Exit:', self.exit)
 
     def add_vertex(self, vtx):
         # NOTE: O(N) !!!
@@ -128,8 +142,11 @@ class DiGraph(nx.DiGraph):
     def _bb_rename(self):
 
         # Add `stmts' attribute to nodes.
-        nodes_stmt = ((n, {'stmts': [(attrs['vtx'].name, attrs['vtx'])]})
-                      for n,attrs in self.nodes(data=True))
+        nodes_stmt = ((n, {'stmts': [(attrs['vtx'].name,
+                                      tuple(attrs['vtx'].inputs),
+                                      tuple(attrs['vtx'].outputs))]
+                           }
+                       ) for n,attrs in self.nodes(data=True))
         self.add_nodes_from(nodes_stmt)
 
         # Remove `vtx'
@@ -149,14 +166,16 @@ class DiGraph(nx.DiGraph):
         stack = list(self.entry.values())
         visited = set()
 
+        squashed_map = {}
+
         while stack:
             n = stack.pop()
             visited.add(n)
 
-            out_nodes = [d for s,d in self.out_edges(n)]
+            out_nodes = [d for s,d in self.out_edges((n, ))]
 
             # Single destination having single source: combine BBs.
-            if len(out_nodes) == 1 and len(self.in_edges(out_nodes[0])) == 1:
+            if len(out_nodes) == 1 and len(self.in_edges(out_nodes)) == 1:
 
                 dest_node = out_nodes.pop()
 
@@ -165,11 +184,14 @@ class DiGraph(nx.DiGraph):
 
                 # Attach vertex's out edges to the BB.
                 out_edges = ((n, d, self.edge[s][d])
-                             for s,d in self.out_edges(dest_node))
+                             for s,d in self.out_edges((dest_node, )))
                 self.add_edges_from(out_edges)
 
                 # Remove the squashed vertex.
                 self.remove_node(dest_node)
+
+                # Register new bb for removed node to rename entry and exit.
+                squashed_map[dest_node] = n
 
                 # Schedule the for further statement squashing.
                 stack.append(n)
@@ -178,6 +200,11 @@ class DiGraph(nx.DiGraph):
             else:
                 # Add all destinations for traveral.
                 stack += filter(lambda x: x not in visited, out_nodes)
+
+        # Rename entry and exit
+        self.entry = {chn: squashed_map.get(bb, bb) for chn, bb in self.entry.items()}
+        self.exit = {chn: squashed_map.get(bb, bb) for chn, bb in self.exit.items()}
+
 
     def convert_to_ir(self):
         self._bb_rename()
@@ -189,18 +216,10 @@ class NetBuilder(ast.NodeVisitor):
     def __init__(self, boxes):
 
         self.boxes = {}
+        self.used_defs = []
 
         for name, func in boxes.items():
-            # Match box specification from docstring.
-            spec = str(func.__doc__).strip()
-            m = re.match('^([1-9]\d*)(T|T\*|I|DO|DU|MO|MU|MS|H)$', spec)
-            assert m
-
-            n_out, cat = m.groups()
-            n_out = int(n_out)
-            n_in = 2 if cat[0] == 'D' else 1
-
-            self.boxes[name] = Box(name, n_in, n_out, func)
+            self.boxes[name] = Box(name, func.n_in, func.n_out, func)
 
         self.scope_stack = []
         self.net_stack = []
@@ -258,6 +277,9 @@ class NetBuilder(ast.NodeVisitor):
 
         elif node.name in scope:
             vertex = copy.copy(scope[node.name])
+
+            if isinstance(vertex, Box):  # or isinstance(vertex, Sync):
+               self.used_defs.append(vertex)
 
             # Apply renaming brackets (if any)
             vertex.rename('in', node.inputs)
@@ -326,9 +348,9 @@ class NetBuilder(ast.NodeVisitor):
         inputs = self.traverse(ast.inputs)
         outputs = self.traverse(ast.outputs)
 
-        return self.compile_net(
+        return (self.compile_net(
             Net(ast.name, inputs, outputs, ast.decls, ast.wiring)
-        )
+        ), self.used_defs)
 
     def compile_net(self, net):
 
