@@ -6,7 +6,6 @@ from queue import Empty as Empty
 
 import networkx as nx
 import ctypes
-import os
 
 import random
 from shmdict import shmdict, Struct
@@ -14,6 +13,7 @@ from shmdict import shmdict, Struct
 LIST_MP = 10000000
 LIST_CH_MP = LIST_MP // 10000
 LIST_IN_MP = 10
+
 
 class DiGraph(nx.DiGraph):
 
@@ -33,10 +33,13 @@ class DiGraph(nx.DiGraph):
             # Go to the next basic block according to the channel.
             try:
                 _, next_bb, _ = next(filter(lambda x: channel in x[2]['chn'],
-                                       self.out_edges((bb_name, ), data=True)))
+                                            self.out_edges((bb_name, ),
+                                                           data=True)))
 
             except StopIteration as si:
-                raise AssertionError('Cannot find appropriate basic block') from si
+                raise AssertionError(
+                    'Cannot find appropriate basic block'
+                ) from si
 
             return (next_bb, next_index)
 
@@ -71,7 +74,7 @@ class Worker:
                 t = Task(*r[1:])
                 self.tasks.append(t)
 
-            #print('New req at worker %d: %s' % (self.wid, r))
+            # print('New req at worker %d: %s' % (self.wid, r))
 
         return True
 
@@ -82,7 +85,9 @@ class Worker:
 
         self.sessions = shmdict('sessions', 100, {'idx': ctypes.c_int,
                                                   'ir': ctypes.c_int})
+
         self.msgs = shmdict('msgs', 100)
+
         self.reductors = shmdict('reductors', 100)
 
         while self.event_loop():
@@ -96,7 +101,7 @@ class Worker:
                 # Execute vertex
                 assert inputs[0] == task.channel
 
-                #print(func.__closure__[0].cell_contents.__name__)
+                # print(func.__closure__[0].cell_contents.__name__)
 
                 if func.cat == 'transductor':
 
@@ -127,7 +132,7 @@ class Worker:
                         for i, m in enumerate(func(None, func.cont)):
                             seqs[i].append(m)
 
-                    #--
+                    # --
 
                     task_seqs = tuple([] for i in range(len(outputs)))
 
@@ -159,11 +164,10 @@ class Worker:
                             for t in tasks:
                                 self.send(wid, t.dump())
 
-
                 elif func.cat == 'reductor':
                     rkey = '%s_%d' % (bb_name, index)
-                    skey = '%s_%d_%d' % (bb_name, index, task.list_id))
-                    mkey = '%s_%d_%d_%d' % (bb_name, index, task.list_id, task.index))
+                    skey = '%s_%d_%d' % (bb_name, index, task.list_id)
+                    mkey = '%s_%d_%d_%d' % (bb_name, index, task.list_id, task.index)
 
                     # Register the reductor globally if needed.
                     #if rkey not in self.reductors and task.index == 0:
@@ -366,34 +370,3 @@ class Stream:
 
     def __repr__(self):
         return repr(self.stream)
-
-#------------------------------------------------------------------------------
-
-def transductor(func):
-    def run(channel, msg):
-        return func(msg)
-    run.cat = 'transductor'
-    return run
-
-def inductor(func):
-    def run(channel, msg):
-        return func(msg)
-    run.cat = 'inductor'
-    run.cont = None
-    return run
-
-def reductor(ordered):
-    def getf(func):
-        def run(channel, msg):
-            return func(msg)
-        run.cat = 'reductor'
-        run.cont = None
-        run.ordered = ordered
-        return run
-    return getf
-
-def output(func):
-    def run(channel, msg):
-        return func(channel, msg)
-    run.cat = 'output'
-    return run
