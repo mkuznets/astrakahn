@@ -96,11 +96,14 @@ if __name__ == '__main__':
 
     # Add exit nodes.
     for bb, channels in exit_bbs.items():
-        exit_node = '%s_exit' % bb
-        graph.add_node(exit_node,
-                       stmts=[('__output__', tuple(channels), ())],
-                       exit=True)
-        graph.add_edge(bb, exit_node, {'chn': set(channels)})
+        # Temporary allow 1-input nodes only.
+        for ch in channels:
+            exit_node = '%s_exit_%s' % (bb, ch)
+
+            graph.add_node(exit_node,
+                           stmts=[('__output__', (ch, ), ())],
+                           exit=True)
+            graph.add_edge(bb, exit_node, {'chn': set((ch, ))})
 
     # Control flow graph.
     output += "nodes = [\n"
