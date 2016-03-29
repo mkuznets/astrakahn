@@ -9,7 +9,7 @@ import networkx as nx
 from functools import reduce
 
 
-class DiGraph(nx.DiGraph):
+class CFG(nx.DiGraph):
     merge_nonce = 1
     entry = None
     exit = None
@@ -375,7 +375,7 @@ class NetBuilder(ast.NodeVisitor):
         # Push current scope to stack
         self.scope_stack.append(scope)
 
-        graph = DiGraph()
+        graph = CFG()
         self.net_stack.append(graph)
 
         self.traverse(net.wiring)

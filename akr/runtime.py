@@ -90,17 +90,15 @@ class Worker:
 
             task = self.tasks.popleft()
 
+            # Sanity check for id completeness.
             assert not (len(task.id) % 2)
 
             bb_name, index = task.pc
             bb_stmts = self.cfg.node[bb_name]['stmts']
             func, inputs, outputs = bb_stmts[index]
 
-            box_name = func.__closure__[0].cell_contents.__name__
-
             if len(inputs) == 1:
                 # Execute vertex
-                #print(box_name, self.wid, task.content)
                 assert inputs[0] == task.channel
 
                 if func.cat == 'transductor':

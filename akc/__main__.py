@@ -96,7 +96,8 @@ if __name__ == '__main__':
 
     # Add exit nodes.
     for bb, channels in exit_bbs.items():
-        # Temporary allow 1-input nodes only.
+        # Create separate output vertex for each output as multi-input vertices
+        # are not currently supported
         for ch in channels:
             exit_node = '%s_exit_%s' % (bb, ch)
 

@@ -3,9 +3,9 @@
 from . import lexer as net_lexer
 from . import parser as net_parser
 from . import ast
-from . import ast
 
-from akc.net.graph import NetBuilder
+from akc.net.backend import NetBuilder
+
 
 class SyncParser(ast.NodeVisitor):
 
