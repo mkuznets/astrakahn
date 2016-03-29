@@ -51,7 +51,7 @@ class Worker:
         self.n_workers = len(queues)
 
         self.tasks = deque(tasks)
-        self.tasks_suspended = deque(tasks)
+        self.tasks_suspended = {}
 
     @property
     def is_ready(self):
@@ -74,6 +74,9 @@ class Worker:
 
                 self.tasks.append(m)
 
+            elif r[0] == 'wakeup':
+                self.tasks.append(self.tasks_suspended[r[1]])
+
             # print('New req at worker %d: %s' % (self.wid, r))
 
         return True
@@ -93,11 +96,12 @@ class Worker:
             bb_stmts = self.cfg.node[bb_name]['stmts']
             func, inputs, outputs = bb_stmts[index]
 
+            box_name = func.__closure__[0].cell_contents.__name__
+
             if len(inputs) == 1:
                 # Execute vertex
+                #print(box_name, self.wid, task.content)
                 assert inputs[0] == task.channel
-
-                #  print(func.__closure__[0].cell_contents.__name__, self.wid, task.content)
 
                 if func.cat == 'transductor':
 
@@ -111,7 +115,7 @@ class Worker:
 
                         next_pc = self.cfg.next_pc(task.pc, channel)
 
-                        m = Message(msg, task.id_eye(port))
+                        m = Message(msg, task.id_eye(port), task.bracket)
                         m.set_loc(channel, next_pc)
 
                         self.tasks.append(m)
@@ -147,6 +151,7 @@ class Worker:
                             ts.append(m)
 
                         ts[-1].sm_inc(task.bracket)
+                        #print(ts[-1], ts[-1].content)
 
                     # TODO: proper task distribution. Critical part of
                     # performance, implement something more sophisticated.
@@ -161,7 +166,72 @@ class Worker:
                                 self.send(wid, t.dump())
 
                 elif func.cat == 'reductor':
-                    raise NotImplementedError('reductor')
+                    # For simplicity temporarily assume a single output port
+                    port = 0
+                    channel = outputs[0]
+
+                    # Initialise continuation
+                    func.cont = None
+
+                    index = task.id[-1]
+                    list_id = task.id[:-1]
+
+                    # ---
+                    stop = False
+                    session_lock.acquire()
+
+                    if index == 0:
+                        sessions[list_id] = 0
+
+                    else:
+                        if list_id not in sessions or sessions[list_id] != index:
+                            # Suspend task
+                            sessions[task.id] = self.wid
+                            self.tasks_suspended[task.id] = task
+                            stop = True
+
+                        else:
+                            func.cont = sessions[list_id + (-1,)]
+
+                    session_lock.release()
+
+                    if stop:
+                        continue
+                    # ---
+
+                    func(task.channel, task.content)
+
+                    if task.bracket is not None:
+                        # End of reduction
+                        m = Message(func.cont, task.id_down(port))
+                        m.sm_dec(task.bracket)
+
+                        next_pc = self.cfg.next_pc(task.pc, channel)
+                        m.set_loc(channel, next_pc)
+
+                        self.tasks.append(m)
+
+                    else:
+                        session_lock.acquire()
+
+                        # Save intermediate result
+                        sessions[list_id] += 1
+                        sessions[list_id + (-1,)] = func.cont
+
+                        next_task = list_id + (index+1,)
+
+                        if next_task in self.tasks_suspended:
+                            # Locally suspended
+                            self.tasks.append(self.tasks_suspended[next_task])
+
+                        elif next_task in sessions:
+                            self.send(sessions[next_task], ('wakeup', next_task))
+
+                        else:
+                            pass
+
+                        session_lock.release()
+
 
                 elif func.cat == 'output':
                     func(task.channel, (task.content, task.id))

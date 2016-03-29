@@ -168,6 +168,16 @@ class DiGraph(nx.DiGraph):
 
         squashed_map = {}
 
+        self.add_node('__exit__')
+        for channel, node in self.exit.items():
+            self.add_edge(node, '__exit__', chn=channel)
+
+        # Fake node to account exit edges from inner nodes.
+        # TODO: use the same mechanism to keep entry/exit up to date.
+        self.add_node('__exit__')
+        for channel, node in self.exit.items():
+            self.add_edge(node, '__exit__', chn=channel)
+
         while stack:
             n = stack.pop()
             visited.add(n)
@@ -200,6 +210,8 @@ class DiGraph(nx.DiGraph):
             else:
                 # Add all destinations for traveral.
                 stack += filter(lambda x: x not in visited, out_nodes)
+
+        self.remove_node('__exit__')
 
         # Rename entry and exit
         self.entry = {chn: squashed_map.get(bb, bb) for chn, bb in self.entry.items()}

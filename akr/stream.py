@@ -96,7 +96,7 @@ class Message:
         self.content = content
         self.id = id
 
-        self.bracket = None
+        self.bracket = bracket
         self.channel = None
         self.pc = None
 
@@ -120,7 +120,7 @@ class Message:
         return pre_id + (list_id, index)
 
     def id_down(self, port):
-        raise NotImplementedError('id_down')
+        return self.id_eye(port)[:-2]
 
     def id_eye(self, port):
         # - dimension and indicies are the same
