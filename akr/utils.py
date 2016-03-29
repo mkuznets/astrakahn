@@ -1,4 +1,7 @@
-def partition(lst, n):
+from typing import Iterable
+
+
+def partition(lst: Iterable, n: int) -> list:
     lst = list(lst)
     return [lst[i::n] for i in range(n)]
 
