@@ -12,7 +12,7 @@ precedence = (
     ('right', 'UMINUS'),
 )
 
-configs = None
+configs = {}
 config_nodes = {}
 
 def p_sync(p):

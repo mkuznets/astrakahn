@@ -1,0 +1,58 @@
+synch join2 (lik, aij | aij)
+{
+  store acc1;
+  store acc2;
+  state int(8) aaa;
+
+  start {
+    on:
+      lik.(Lij, ii) & [i==j] {
+        set acc1 = (Lik: Lij), aaa = [100];
+        goto second;
+      }
+
+
+    elseon:
+      lik.(Lij, ii) & [ii == i] {
+        set acc1 = (Lik: Lij);
+        goto second;
+      }
+
+      lik.(Lij, ii) & [ii == j] {
+        set acc2 = (Ljk: Lij);
+        goto second;
+      }
+
+      lik.else & [ii == j] {
+        set acc2 = (Ljk: Lij);
+        goto second;
+      }
+  }
+
+  second {
+    on:
+      lik.(Lij, ii) & [i==j] {
+        set acc2 = (Ljk: Lij);
+        goto third;
+      }
+
+    elseon:
+      lik.(Lij, ii) & [ii == i] {
+        set acc1 = (Lik: Lij);
+        goto third;
+      }
+
+      lik.(Lij, ii) & [ii == j] {
+        set acc2 = (Ljk: Lij);
+        goto third;
+      }
+  }
+
+  third {
+    on:
+      aij.(Aij) {
+        send {acc1 || acc2 || this} => aij;
+        goto start;
+      }
+  }
+}
