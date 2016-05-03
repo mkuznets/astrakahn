@@ -69,8 +69,11 @@ class State(object):
         self._variables = kawrgs.copy()
         self._locals = {}
 
+    def scope(self):
+        return dict(ChainMap(self._locals, self._variables))
+
     def __getitem__(self, name):
-        return self.variables[name]
+        return ChainMap(self._locals, self._variables)[name]
 
     def __setitem__(self, name, value):
         if name in self._variables:
