@@ -1,4 +1,5 @@
 import os
+import stat
 from optparse import OptionParser
 from .compiler import compile
 
@@ -25,4 +26,11 @@ if __name__ == '__main__':
         opts.error('Input file does not exist or cannot be read')
 
     with open(filename, 'r') as f:
-        compile(f.read())
+        output = compile(f.read())
+
+    with open(options.output, 'w') as f:
+        f.write(output)
+
+        mode = os.fstat(f.fileno()).st_mode
+        mode |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+        os.fchmod(f.fileno(), stat.S_IMODE(mode))

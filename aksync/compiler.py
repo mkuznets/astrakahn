@@ -12,9 +12,9 @@ def indent(level):
 
 def iprint(level, text):
     if not text:
-        print('')
+        return "\n"
     else:
-        print(indent(level) + text)
+        return indent(level) + text + "\n"
 
 
 def compile(code):
@@ -38,21 +38,22 @@ def compile(code):
     sync_name = sync_label.split(':')[1]
 
     level = 0
+    output = ''
 
-    iprint(level, 'from aksync.runtime import *')
-    iprint(level, 'from random import sample')
-    iprint(level, 'from collections import defaultdict')
-    iprint(level, '')
+    output += iprint(level, 'from aksync.runtime import *')
+    output += iprint(level, 'from random import sample')
+    output += iprint(level, 'from collections import defaultdict, ChainMap')
+    output += iprint(level, '')
 
-    iprint(level, 'def %s(msgs, orig_state):' % sync_name)
+    output += iprint(level, 'def %s(msgs, orig_state):' % sync_name)
     level += 1
 
-    iprint(level, 'if not msgs: return({}, orig_state.copy())')
-    iprint(level, '')
+    output += iprint(level, 'if not msgs: return({}, orig_state.copy())')
+    output += iprint(level, '')
 
-    iprint(level, 'state = orig_state.copy()')
-    iprint(level, 'valid_acts = []')
-    iprint(level, '')
+    output += iprint(level, 'state = orig_state.copy()')
+    output += iprint(level, 'valid_acts = []')
+    output += iprint(level, '')
 
     # -- state level --
     for st_i, state in enumerate(states):
@@ -61,7 +62,7 @@ def compile(code):
 
         state_name = state_label.split(':')[1]
 
-        iprint(level, '%sif state.name == "%s":'
+        output += iprint(level, '%sif state.name == "%s":'
                % ('el' if st_i > 0 else '', state_name))
 
         level += 1
@@ -70,7 +71,7 @@ def compile(code):
         for sc_i, scope in enumerate(scopes):
 
             if sc_i > 0:
-                iprint(level, 'if not valid_acts:')
+                output += iprint(level, 'if not valid_acts:')
                 level += 1
 
             scope_label, *ports = scope
@@ -83,7 +84,7 @@ def compile(code):
 
                 port_id = int(port_label.split(':')[1])
 
-                iprint(level, 'if %d in msgs:' % port_id)
+                output += iprint(level, 'if %d in msgs:' % port_id)
                 level += 1
 
                 tests = defaultdict(list)
@@ -97,29 +98,34 @@ def compile(code):
                     if pattern == '__else__':
                         continue
 
-                    iprint(level, 'match, state.locals = %s.test(msgs[%d])' % (pattern, port_id))
-                    iprint(level, 'if match:')
+                    output += iprint(level,
+                                     'match, state.locals = %s.test(msgs[%d][0])'
+                                     % (pattern, port_id)
+                    )
+                    output += iprint(level, 'if match:')
                     level += 1
 
                     for pr_i, (predicate_label, act_id) in enumerate(predicates):
                         predicate = ':'.join(predicate_label.split(':')[1:])
-                        iprint(level, '%sif %s.compute(state.vars): '
-                               'valid_acts.append((%d, state.locals))'
-                               % ('el' if pr_i == 1 else '', predicate, act_id))
+                        output += iprint(
+                            level, '%sif (%s): '
+                            'valid_acts.append((%d, %d, state.locals))'
+                            % ('el' if pr_i == 1 else '', predicate, act_id, port_id)
+                        )
 
                     level -= 1
                 # -- test level --
 
                 # -- else level --
                 if '__else__' in tests:
-                    iprint(level, 'else:')
+                    output += iprint(level, 'else:')
                     level += 1
 
                     for i, (predicate_label, act_id) in enumerate(tests['__else__']):
                         predicate = ':'.join(predicate_label.split(':')[1:])
-                        iprint(level, '%sif %s.compute(state.vars):'
-                               'valid_acts.append((%d, {}))'
-                               % ('el' if i == 1 else '', predicate, act_id))
+                        output += iprint(level, '%sif (%s): '
+                               'valid_acts.append((%d, %d, {}))'
+                               % ('el' if i == 1 else '', predicate, act_id, port_id))
 
                     level -= 1
 
@@ -135,42 +141,47 @@ def compile(code):
 
         # State
         level -= 1
-        iprint(level, '')
+        output += iprint(level, '')
     # -- state level --
 
-    iprint(level, '# --------------')
-    iprint(level, '')
+    output += iprint(level, '# --------------')
+    output += iprint(level, '')
 
-    iprint(level, 'if not valid_acts: return({}, orig_state.copy())')
-    iprint(level, '')
+    output += iprint(level, 'if not valid_acts: return({}, orig_state.copy())')
+    output += iprint(level, '')
 
-    iprint(level, 'act_id, state.locals = sample(valid_acts, 1)[0]')
-    iprint(level, 'output = defaultdict(list)')
-    iprint(level, '')
+    output += iprint(level, 'act_id, port_id, state.locals = '
+                            'sample(valid_acts, 1)[0]')
+
+    output += iprint(level, 'output = defaultdict(list)')
+    output += iprint(level, 'msg = msgs[port_id][0]')
+    output += iprint(level, '')
 
     for i, (act_id, acts) in enumerate(actions.items()):
 
-        iprint(level, '%sif act_id == %d:' % ('el' if i > 0 else '', act_id))
+        output += iprint(level, '%sif act_id == %d:' % ('el' if i > 0 else '', act_id))
         level += 1
 
         for (act_label, *act) in acts:
 
             if act_label == 'Assign':
                 lhs, rhs = act
-                iprint(level, 'state.vars["%s"] = %s.compute(state.vars)' % (lhs, rhs))
+                output += iprint(level, 'state["%s"] = %s' % (lhs, rhs))
 
             if act_label == 'Send':
                 msg, port = act
-                iprint(level, 'output[%d].append(%s.compute(state.vars))' % (port, msg))
+                output += iprint(level, 'output[%d].append(%s)' % (port, msg))
 
             if act_label == 'Goto':
                 name = act[0][0]
-                iprint(level, 'state.name = "%s"' % name)
+                output += iprint(level, 'state.name = "%s"' % name)
 
-        iprint(level, '')
+        output += iprint(level, '')
         level -= 1
 
-    iprint(level, 'state.locals.clear()')
-    iprint(level, '')
+    output += iprint(level, 'state.locals.clear()')
+    output += iprint(level, '')
 
-    iprint(level, 'return(output, state)')
+    output += iprint(level, 'return(output, state)')
+
+    return output

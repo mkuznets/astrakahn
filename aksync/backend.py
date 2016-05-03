@@ -134,43 +134,54 @@ class SyncBuilder(ast.NodeVisitor):
     # --------------------------------------------------
 
     def visit_DataExp(self, node, ch):
-        return 'DataExp([%s])' % ', '.join(ch['terms'])
+        terms = ch['terms']
+
+        if not terms:
+            return []
+        else:
+            terms.reverse()
+            return ', '.join(terms)
 
     def visit_ItemThis(self, node, _):
-        return 'TermThis()'
+        return 'msg'
 
     def visit_ItemVar(self, node, ch):
-        return 'TermVar("%s")' % (ch['name'])
+        return 'state["%s"]' % (ch['name'])
 
     def visit_ItemExpand(self, node, ch):
-        return 'TermVarExpand("%s")' % (ch['name'])
+        return '{"%s": state["%s"]}' % (ch['name'], ch['name'])
 
     def visit_ItemPair(self, node, ch):
-        return 'TermPair("%s", %s)' % (ch['label'], ch['value'])
+        return '{"%s": %s}' % (ch['label'], ch['value'])
 
     # --------------------------------------------------
 
     def visit_MsgSegmark(self, node, ch):
-        return 'DataExp(%s, SegmentationMarkExp(%s))' % \
-            (ch['data_exp'], ch['depth'])
-
-    def visit_MsgData(self, node, ch):
-        return ch['data_exp']
+        if not ch['data_exp']:
+            return '{"__n__": %s}' % ch['depth']
+        else:
+            return 'dict(ChainMap({"__n__": %s}, %s))' % (ch['depth'],
+                                                          ch['data_exp'])
 
     def visit_MsgRecord(self, node, ch):
-        return ch['data_exp']
+        if not ch['data_exp']:
+            return '{}'
+        else:
+            return 'dict(ChainMap(%s))' % ch['data_exp']
 
     # --------------------------------------------------
 
     def visit_IntExp(self, node, _):
 
         values = {key: term.value for key, term in node.terms.items()}
-        args = [term for term in values.values() if type(term) is str]
+        # print(values)
+        # args = [term for term in values.values() if type(term) is str]
+        #
+        # code = 'lambda %s: %s' % (', '.join(set(args)),
+        #                           node.exp.format(**values))
 
-        code = 'lambda %s: %s' % (', '.join(set(args)),
-                                  node.exp.format(**values))
-
-        return 'IntExp(%s)' % code
+        return node.exp.format(**{k: 'state["%s"]' % v if type(v) is str else v
+                                  for k,v in values.items()})
 
     def visit_ID(self, node, _):
         return node.value

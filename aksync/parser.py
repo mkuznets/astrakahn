@@ -3,7 +3,6 @@
 import os
 from . import ast
 
-
 precedence = (
     ('left', 'LOR', 'LAND', 'BOR', 'BAND', 'BXOR'),
     ('left', 'LE', 'GE', 'GEQ', 'LEQ', 'EQ', 'NEQ'),
@@ -423,7 +422,6 @@ def p_msg_exp(p):
     '''
     msg_exp : AT int_exp
             | AT int_exp LBRACE data_exp RBRACE
-            | choice_opt LBRACE data_exp RBRACE
             | data_exp
     '''
     if len(p) == 3:
@@ -432,11 +430,8 @@ def p_msg_exp(p):
     elif len(p) == 6:
         p[0] = ast.MsgSegmark(p[2], p[4])
 
-    elif len(p) == 5:
-        p[0] = ast.MsgRecord(p[1], p[3])
-
     else:
-        p[0] = ast.MsgData(p[1])
+        p[0] = ast.MsgRecord(p[1])
 
 
 def p_choice_opt(p):
@@ -511,10 +506,10 @@ def p_intexp_raw(p):
     global terms, terms_cnt
 
     if len(p) == 2:
-        t = ('n%d' if type(p[1]) is int else 't%d') % terms_cnt
+        t = ('t%d:d' if type(p[1]) is int else 't%d:s') % terms_cnt
         terms_cnt += 1
         # Ugly hack. Need to make a separate rule for wrapping a number.
-        terms[t] = ast.NUMBER(p[1]) if type(p[1]) is int else p[1]
+        terms[t[:-2]] = ast.NUMBER(p[1]) if type(p[1]) is int else p[1]
         p[0] = '{%s}' % t
 
     else:
