@@ -162,19 +162,24 @@ def compile(code):
         output += iprint(level, '%sif act_id == %d:' % ('el' if i > 0 else '', act_id))
         level += 1
 
-        for (act_label, *act) in acts:
+        if not acts:
+            output += iprint(level, 'pass')
 
-            if act_label == 'Assign':
-                lhs, rhs = act
-                output += iprint(level, 'state["%s"] = %s' % (lhs, rhs))
+        else:
+            for (act_label, *act) in acts:
 
-            if act_label == 'Send':
-                msg, port = act
-                output += iprint(level, 'output[%d].append(%s)' % (port, msg))
+                if act_label == 'Assign':
+                    lhs, rhs = act
+                    output += iprint(level, 'state["%s"] = %s' % (lhs, rhs))
 
-            if act_label == 'Goto':
-                name = act[0][0]
-                output += iprint(level, 'state.name = "%s"' % name)
+                if act_label == 'Send':
+                    msg, port = act
+                    output += iprint(level, 'output[%d].append(%s)' % (port, msg))
+
+                if act_label == 'Goto':
+                    states = act[0]
+                    name = states[0]
+                    output += iprint(level, 'state.name = "%s"' % name)
 
         output += iprint(level, '')
         level -= 1
