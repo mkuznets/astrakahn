@@ -155,12 +155,8 @@ def p_decl(p):
 def p_type(p):
     """
     type : INT LPAREN VNUMBER RPAREN
-         | ENUM LPAREN id_list RPAREN
     """
-    if p[1] == 'int':
-        p[0] = ast.IntType(p[3])
-    else:
-        p[0] = ast.EnumType(p[3])
+    p[0] = ast.IntType(p[3])
 
 
 def p_statevar_list(p):

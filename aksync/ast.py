@@ -1,7 +1,7 @@
 #-----------------------------------------------------------------
 # ** ATTENTION **
 # This code was automatically generated from the file:
-# ast/sync_ast.cfg
+# ast_meta/sync_ast.cfg
 #
 # Do not modify it directly. Modify the configuration file and
 # run the generator again.
@@ -228,22 +228,6 @@ class IntType(Node):
     def children(self, expand=False):
         nodelist = []
         if self.size is not None: nodelist.append(("size", self.size))
-        return tuple(nodelist)
-
-    attr_names = ()
-
-class EnumType(Node):
-    def __init__(self, labels, coord=None):
-        self.labels = labels
-        self.coord = coord
-
-    def children(self, expand=False):
-        nodelist = []
-        if expand:
-            for i, child in enumerate(self.labels or []):
-                nodelist.append(("labels[%d]" % i, child))
-        else:
-            nodelist.append(("labels", list(self.labels) or []))
         return tuple(nodelist)
 
     attr_names = ()

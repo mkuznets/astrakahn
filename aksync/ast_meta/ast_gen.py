@@ -248,6 +248,6 @@ class NodeVisitor(object):
 
 if __name__ == "__main__":
     import sys
-    ast_gen = ASTCodeGenerator('ast/sync_ast.cfg')
+    ast_gen = ASTCodeGenerator('ast_meta/sync_ast.cfg')
     ast_gen.generate(open('ast.py', 'w'))
 

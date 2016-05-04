@@ -8,13 +8,12 @@ synch cpu (instr, load, mem, c | stdout, load, mem, c)
   store mem;
   state int(2) found;
 
-  # LD  0
-  # ST  1
-  # ADD 2
-  # MUL 3
-  # PRT 4
-
+  /*
+  LD 0    ADD 2    PRT 4
+  ST 1    MUL 3
+  */
   state int(5) opcode;
+
   state int(10) operand;
   state int(10) acc = 0;
 

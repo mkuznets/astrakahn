@@ -1,6 +1,7 @@
 from typing import Sequence, Tuple
 from collections import ChainMap
 
+
 class Condition(object):
     def __init__(self):
         pass
