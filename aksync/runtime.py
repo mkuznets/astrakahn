@@ -35,7 +35,7 @@ class ConditionData(Condition):
 
             if self.tail:
                 tail_labels = msg.keys() - set(self.pattern)
-                local_vars[self.tail] = {msg[l] for l in tail_labels}
+                local_vars[self.tail] = {l: msg[l] for l in tail_labels}
 
             return True, local_vars
 

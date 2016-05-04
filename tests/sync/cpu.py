@@ -1,26 +1,22 @@
-#!/usr/bin/env python3
+from aksync.runtime import *
+from aksync.compiler import compile
+from collections import deque
 
-'''
-net CPU (instr | stdout)
-  synch cpu [SIZE=32]
-connect
-  cpu\\
-end
-'''
-
-#------------------------------------------------------------------------------
-
-s_cpu = '''
-@SIZE = 10
+sync_src = """
 synch cpu (instr, load, mem, c | stdout, load, mem, c)
 {
   store mem;
   state int(2) found;
 
-  state int(SIZE) acc;
+  # LD  0
+  # ST  1
+  # ADD 2
+  # MUL 3
+  # PRT 4
 
-  state enum(NONE, LD, ST, ADD, MUL, PRT) opcode;
-  state int(SIZE) operand;
+  state int(5) opcode;
+  state int(10) operand;
+  state int(10) acc = 0;
 
   # Initial state: wait for instructions.
   start {
@@ -44,32 +40,32 @@ synch cpu (instr, load, mem, c | stdout, load, mem, c)
   idecode {
     on:
       # Load
-      c.(act) & [opcode == LD] {
+      c.(act) & [opcode == 0] {
         set found = [0];
         send @[0] => mem;
         goto search;
       }
 
       # Store
-      c.(act) & [opcode == ST] {
+      c.(act) & [opcode == 1] {
         send (addr: operand || value: [acc]) => mem;
         goto start;
       }
 
       # Addition
-      c.(act) & [opcode == ADD] {
+      c.(act) & [opcode == 2] {
         set acc = [acc + operand];
         goto start;
       }
 
       # Multiplication
-      c.(act) & [opcode == MUL] {
+      c.(act) & [opcode == 3] {
         set acc = [acc * operand];
         goto start;
       }
 
       # Print
-      c.(act) & [opcode == PRT] {
+      c.(act) & [opcode == 4] {
         send 'acc => stdout;
         goto start;
       }
@@ -108,11 +104,14 @@ synch cpu (instr, load, mem, c | stdout, load, mem, c)
       }
   }
 }
-'''
+"""
 
-#------------------------------------------------------------------------------
+sync_py = compile(sync_src)
+exec(sync_py)
 
-LD, ST, ADD, MUL, PRT = range(1, 6)
+# Expect cpu() and cpu_init() to be defined here.
+
+LD, ST, ADD, MUL, PRT = range(0, 5)
 
 istream = [
     (PRT, 0),
@@ -128,13 +127,36 @@ istream = [
     (PRT, 0),
 ]
 
-import communication as comm
+istream.reverse()
 
-__input__ = {'instr':
-             [comm.Record({'opc': opc, 'op0': op}) for opc, op in istream]
-             }
+channels = {
+    0: deque(({'opc': opc, 'op0': op} for opc, op in istream)),  # instr
+    1: deque(),  # load
+    2: deque(),  # mem
+    3: deque(),  # c
+}
 
-#------------------------------------------------------------------------------
+state = cpu_init()
 
-import astrakahn
-astrakahn.start()
+# Implement network
+# Input: `instr'
+# Output: `stdout'
+# `load', `mem', and `c' are connected via feedback loop.
+
+while True:
+    inputs = {i: ch[-1] for i, ch in channels.items() if ch}
+
+    output, state, consumed = cpu(inputs, state)
+
+    if not consumed:
+        break
+
+    for i in consumed:
+        channels[i].pop()
+
+    for i, msgs in output.items():
+        if i > 0:
+            channels[i].extendleft(msgs)
+
+    if 0 in output:
+        print('Out', output[0])

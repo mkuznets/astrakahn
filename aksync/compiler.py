@@ -48,7 +48,7 @@ def compile(code):
     output += iprint(level, 'def %s(msgs, orig_state):' % sync_name)
     level += 1
 
-    output += iprint(level, 'if not msgs: return({}, orig_state.copy())')
+    output += iprint(level, 'if not msgs: return({}, orig_state.copy(), ())')
     output += iprint(level, '')
 
     output += iprint(level, 'state = orig_state.copy()')
@@ -84,7 +84,7 @@ def compile(code):
 
                 port_id = int(port_label.split(':')[1])
 
-                output += iprint(level, 'if %d in msgs:' % port_id)
+                output += iprint(level, 'if msgs.get(%d, None):' % port_id)
                 level += 1
 
                 tests = defaultdict(list)
@@ -99,7 +99,7 @@ def compile(code):
                         continue
 
                     output += iprint(level,
-                                     'match, state.locals = %s.test(msgs[%d][0])'
+                                     'match, state.locals = %s.test(msgs[%d])'
                                      % (pattern, port_id)
                     )
                     output += iprint(level, 'if match:')
@@ -147,14 +147,14 @@ def compile(code):
     output += iprint(level, '# --------------')
     output += iprint(level, '')
 
-    output += iprint(level, 'if not valid_acts: return({}, orig_state.copy())')
+    output += iprint(level, 'if not valid_acts: return({}, orig_state.copy(), ())')
     output += iprint(level, '')
 
     output += iprint(level, 'act_id, port_id, state.locals = '
                             'sample(valid_acts, 1)[0]')
 
     output += iprint(level, 'output = defaultdict(list)')
-    output += iprint(level, 'msg = msgs[port_id][0]')
+    output += iprint(level, 'msg = msgs[port_id]')
     output += iprint(level, '')
 
     for i, (act_id, acts) in enumerate(actions.items()):
@@ -187,6 +187,13 @@ def compile(code):
     output += iprint(level, 'state.locals.clear()')
     output += iprint(level, '')
 
-    output += iprint(level, 'return(output, state)')
+    output += iprint(level, 'return(output, state, (port_id,))')
+    level -= 1
+    output += iprint(level, '')
+
+    output += iprint(level, 'def %s_init():' % sync_name)
+    level += 1
+    output += iprint(level, 'return State(name="start", %s)' % (", ".join(vars)))
+    level -= 1
 
     return output

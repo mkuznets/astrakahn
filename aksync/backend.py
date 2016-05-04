@@ -54,10 +54,10 @@ class SyncBuilder(ast.NodeVisitor):
         return ch['decls']
 
     def visit_StoreVar(self, node, ch):
-        return 'store:%s' % ch['name']
+        return '%s={}' % ch['name']
 
     def visit_StateVar(self, node, ch):
-        return 'state:%s' % ch['name']
+        return '%s=%s' % (ch['name'], ch['value'])
 
     def visit_IntType(self, node, ch):
         return ('int', ch['size'])
@@ -98,18 +98,18 @@ class SyncBuilder(ast.NodeVisitor):
     # --------------------------------------------------
 
     def visit_CondSegmark(self, node, ch):
-        return 'ConditionSegmark(%s, [%s], %s)' % \
+        return 'ConditionSegmark("%s", [%s], "%s")' % \
             (ch['depth'],
              ', '.join(ch['pattern']),
              ch['tail'])
 
     def visit_CondChoice(self, node, ch):
-        return 'ConditionData([%s], %s)' % \
+        return 'ConditionData([%s], "%s")' % \
             (', '.join('"%s"' % l for l in ch['pattern']),
              ch['tail'])
 
     def visit_CondDataMsg(self, node, ch):
-        return 'ConditionData([%s], %s)' % \
+        return 'ConditionData([%s], "%s")' % \
             (', '.join('"%s"' % l for l in ch['pattern']),
              ch['tail'])
 
