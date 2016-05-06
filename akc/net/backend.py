@@ -39,13 +39,13 @@ class CFG(nx.DiGraph):
     def add_wire(self, lnode, rnode, port):
         self.add_edge(lnode, rnode)
         edge = self.edge[lnode][rnode]
-        edge['chn'] = edge.get('chn', set()) | set((port, ))
+        edge['chn'] = edge.get('chn', set()) | set((port,))
 
     def add_merger(self, inputs, outputs):
         name = '%s%d' % ('merger', self.merge_nonce)
         self.merge_nonce += 1
 
-        merger = Sync(name, inputs, outputs, None, None)
+        merger = Sync(name, inputs, outputs, None)
         return self.add_vertex(merger)
 
     def connect(self, lnbunch, rnbunch):
@@ -146,7 +146,7 @@ class CFG(nx.DiGraph):
                                       tuple(attrs['vtx'].inputs),
                                       tuple(attrs['vtx'].outputs))]
                            }
-                       ) for n,attrs in self.nodes(data=True))
+                       ) for n, attrs in self.nodes(data=True))
         self.add_nodes_from(nodes_stmt)
 
         # Remove `vtx'
@@ -154,11 +154,11 @@ class CFG(nx.DiGraph):
             del self.node[n]['vtx']
 
         # Rename vertices to BBs.
-        bb_map = {n: 'bb_%d' % i for i,n in enumerate(self.nodes())}
+        bb_map = {n: 'bb_%d' % i for i, n in enumerate(self.nodes())}
         nx.relabel_nodes(self, bb_map, copy=False)
 
-        self.entry = {port: bb_map[node] for port,node in self.entry.items()}
-        self.exit = {port: bb_map[node] for port,node in self.exit.items()}
+        self.entry = {port: bb_map[node] for port, node in self.entry.items()}
+        self.exit = {port: bb_map[node] for port, node in self.exit.items()}
 
     def _bb_squash(self):
 
@@ -168,7 +168,8 @@ class CFG(nx.DiGraph):
 
         squashed_map = {}
 
-        self.add_node('__exit__')
+        self.add_node('__exit__', {'stmts': {}})
+
         for channel, node in self.exit.items():
             self.add_edge(node, '__exit__', chn=channel)
 
@@ -182,7 +183,7 @@ class CFG(nx.DiGraph):
             n = stack.pop()
             visited.add(n)
 
-            out_nodes = [d for s,d in self.out_edges((n, ))]
+            out_nodes = [d for s, d in self.out_edges((n,))]
 
             # Single destination having single source: combine BBs.
             if len(out_nodes) == 1 and len(self.in_edges(out_nodes)) == 1:
@@ -194,7 +195,7 @@ class CFG(nx.DiGraph):
 
                 # Attach vertex's out edges to the BB.
                 out_edges = ((n, d, self.edge[s][d])
-                             for s,d in self.out_edges((dest_node, )))
+                             for s, d in self.out_edges((dest_node,)))
                 self.add_edges_from(out_edges)
 
                 # Remove the squashed vertex.
@@ -211,12 +212,14 @@ class CFG(nx.DiGraph):
                 # Add all destinations for traveral.
                 stack += filter(lambda x: x not in visited, out_nodes)
 
-        self.remove_node('__exit__')
+        # NOTE: __exit__ node may be squashed
+        self.remove_nodes_from(('__exit__',))
 
         # Rename entry and exit
-        self.entry = {chn: squashed_map.get(bb, bb) for chn, bb in self.entry.items()}
-        self.exit = {chn: squashed_map.get(bb, bb) for chn, bb in self.exit.items()}
-
+        self.entry = {chn: squashed_map.get(bb, bb) for chn, bb in
+                      self.entry.items()}
+        self.exit = {chn: squashed_map.get(bb, bb) for chn, bb in
+                     self.exit.items()}
 
     def convert_to_ir(self):
         self._bb_rename()
@@ -224,14 +227,19 @@ class CFG(nx.DiGraph):
 
 
 class NetBuilder(ast.NodeVisitor):
+    def __init__(self, boxes, syncs):
 
-    def __init__(self, boxes):
-
-        self.boxes = {}
-        self.used_defs = []
+        self.decls = {}
+        self.used_boxes = []
+        self.used_syncs = []
 
         for name, func in boxes.items():
-            self.boxes[name] = Box(name, func.n_in, func.n_out, func)
+            self.decls[name] = Box(name, func.n_in, func.n_out, func)
+
+        for name, ast in syncs.items():
+            inputs = [p.name.value for p in ast.inputs.ports]
+            outputs = [p.name.value for p in ast.outputs.ports]
+            self.decls[name] = Sync(name, inputs, outputs, None)
 
         self.scope_stack = []
         self.net_stack = []
@@ -254,17 +262,16 @@ class NetBuilder(ast.NodeVisitor):
 
     def visit_SynchTab(self, node, _):
         'final'
-        inputs = [p.name.value for p in node.sync.ast.inputs.ports]
-        outputs = [p.name.value for p in node.sync.ast.outputs.ports]
+        sync = self.decls[node.name]
+        sync.configs = node.sync.configs
 
-        return SyncTab(node.sync.name, inputs, outputs,
-                       node.sync.ast, node.sync.macros, node.labels)
+        return SyncTab(sync.name, sync.inputs, sync.outputs, sync.configs,
+                       node.labels)
 
     def visit_Synchroniser(self, node, _):
         'final'
-        inputs = [p.name.value for p in node.ast.inputs.ports]
-        outputs = [p.name.value for p in node.ast.outputs.ports]
-        return Sync(node.name, inputs, outputs, node.ast, node.macros)
+        self.decls[node.name].configs = node.configs
+        return self.decls[node.name]
 
     def visit_Net(self, node, _):
         'final'
@@ -290,8 +297,11 @@ class NetBuilder(ast.NodeVisitor):
         elif node.name in scope:
             vertex = copy.copy(scope[node.name])
 
-            if isinstance(vertex, Box):  # or isinstance(vertex, Sync):
-               self.used_defs.append(vertex)
+            if isinstance(vertex, Box):
+                self.used_boxes.append(vertex)
+
+            elif isinstance(vertex, Sync):
+                self.used_syncs.append(vertex)
 
             # Apply renaming brackets (if any)
             vertex.rename('in', node.inputs)
@@ -362,13 +372,13 @@ class NetBuilder(ast.NodeVisitor):
 
         return (self.compile_net(
             Net(ast.name, inputs, outputs, ast.decls, ast.wiring)
-        ), self.used_defs)
+        ), self.used_boxes, self.used_syncs)
 
     def compile_net(self, net):
 
         scope = self.traverse(net.decls)
         # Declaration corresponding to some box overrides the it.
-        non_redefined = {k: v for k, v in self.boxes.items() if k not in scope}
+        non_redefined = {k: v for k, v in self.decls.items() if k not in scope}
         # Add non-overriden boxes.
         scope.update(non_redefined)
 
@@ -400,7 +410,7 @@ class Decl(object):
 
         self.name = name
 
-        name_ports = lambda n: ['_%s' % (i+1) for i in range(n)]
+        name_ports = lambda n: ['_%s' % (i + 1) for i in range(n)]
         self.inputs = name_ports(n_in)
         self.outputs = name_ports(n_out)
 
@@ -455,17 +465,17 @@ class Sync(Decl):
     ast = None
     macros = None
 
-    def __init__(self, name, inputs, outputs, ast, macros):
+    def __init__(self, name, inputs, outputs, configs):
         super().__init__(name, len(inputs), len(outputs))
         self.rename('in', inputs)
         self.rename('out', outputs)
         self.ast = ast
-        self.macros = macros
+        self.configs = configs
 
 
 class SyncTab(Sync):
     labels = None
 
-    def __init__(self, name, inputs, outputs, ast, macros, labels):
-        super().__init__(name, inputs, outputs, ast, macros)
+    def __init__(self, name, inputs, outputs, configs, labels):
+        super().__init__(name, inputs, outputs, configs)
         self.labels = labels

@@ -168,17 +168,16 @@ class SynchTab(Node):
     attr_names = ('labels',)
 
 class Synchroniser(Node):
-    def __init__(self, name, macros, ast, coord=None):
+    def __init__(self, name, configs, coord=None):
         self.name = name
-        self.macros = macros
-        self.ast = ast
+        self.configs = configs
         self.coord = coord
 
     def children(self, expand=False):
         nodelist = []
         return tuple(nodelist)
 
-    attr_names = ('name','macros','ast',)
+    attr_names = ('name','configs',)
 
 class Morphism(Node):
     def __init__(self, split, map, join, coord=None):

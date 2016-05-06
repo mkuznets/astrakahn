@@ -19,10 +19,7 @@ def iprint(level, text):
 
 def compile(code):
 
-    lexer = sync_lexer.build()
-    parser = sync_parser.build()
-
-    asts = parser.parse(code, lexer=lexer)
+    asts = compile_to_ast(code)
 
     output = ''
 
@@ -30,6 +27,16 @@ def compile(code):
         output += compile_sync(ast)
 
     return output
+
+
+def compile_to_ast(code):
+
+    lexer = sync_lexer.build()
+    parser = sync_parser.build()
+
+    asts = parser.parse(code, lexer=lexer)
+
+    return asts
 
 
 def preamble():

@@ -11,6 +11,7 @@ from collections import defaultdict
 from .net.compiler import compile
 from .utils import is_box, is_file_readable
 
+import aksync.compiler
 
 __runtime_pkg__ = 'akr'
 
@@ -35,12 +36,15 @@ if __name__ == '__main__':
     if not is_file_readable(src_filename):
         raise ValueError('Input file does not exist or cannot be read')
 
-    # Same filename with .py extension in the same dir
-    module_name = os.path.basename(src_filename).split('.')[0] + '.py'
-    decls_filename = os.path.join(os.path.dirname(src_filename),
-                                  module_name)
+    # ----
 
-    spec = spec_from_file_location(module_name, decls_filename)
+    module_name = os.path.basename(src_filename).split('.')[0]
+
+    # Box definitions source
+    decls_filename = os.path.join(os.path.dirname(src_filename),
+                                  module_name + '.py')
+
+    spec = spec_from_file_location(module_name + '.py', decls_filename)
     decls = module_from_spec(spec)
     spec.loader.exec_module(decls)
 
@@ -48,11 +52,18 @@ if __name__ == '__main__':
     box_members = inspect.getmembers(decls, predicate=is_box)
     boxes = {n: f() for n, f in box_members}
 
-    syncs = {n[2:]: getattr(decls, n) for n in dir(decls)
-             if n.startswith('s_')}
+    # Synchronisers source
+    syncs_filename = os.path.join(os.path.dirname(src_filename),
+                                  module_name + '.sync')
+
+    with open(syncs_filename, 'r') as src_file:
+        syncs = {ast.name.value: ast
+                 for ast in aksync.compiler.compile_to_ast(src_file.read())}
+
+    # ----
 
     with open(src_filename, 'r') as src_file:
-        graph, defs = compile(src_file.read(), boxes, syncs)
+        graph, used_boxes, used_syncs = compile(src_file.read(), boxes, syncs)
 
     graph.convert_to_ir()
 
@@ -62,7 +73,10 @@ if __name__ == '__main__':
     output = "#!/usr/bin/env python3\n\n"
     output += "import %s\n\n" % __runtime_pkg__
 
-    boxes = {box.func.__name__: box for box in defs}
+    if used_syncs:
+        output += aksync.compiler.preamble()
+
+    boxes = {box.func.__name__: box for box in used_boxes}
 
     # Box functions.
     for box in boxes.values():
@@ -89,6 +103,11 @@ if __name__ == '__main__':
     output += ''.join(handler)
     output += "\n"
 
+    # Synchronisers
+    for sync in used_syncs:
+        ast = syncs[sync.name]
+        output += aksync.compiler.compile_sync(ast)
+
     # Reverse exit mapping
     exit_bbs = defaultdict(list)
     for channel, bb in graph.exit.items():
@@ -102,9 +121,9 @@ if __name__ == '__main__':
             exit_node = '%s_exit_%s' % (bb, ch)
 
             graph.add_node(exit_node,
-                           stmts=[('__output__', (ch, ), ())],
+                           stmts=[('__output__', (ch,), ())],
                            exit=True)
-            graph.add_edge(bb, exit_node, {'chn': set((ch, ))})
+            graph.add_edge(bb, exit_node, {'chn': set((ch,))})
 
     # Control flow graph.
     output += "nodes = [\n"

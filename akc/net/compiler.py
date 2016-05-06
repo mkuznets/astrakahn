@@ -7,25 +7,7 @@ from . import ast
 from akc.net.backend import NetBuilder
 
 
-class SyncParser(ast.NodeVisitor):
-
-    def __init__(self, syncs):
-        self.syncs = syncs
-
-    def visit_Synchroniser(self, node, children):
-
-        if node.name not in self.syncs:
-            raise ValueError('Synchroniser `%s\' not found' % node.name)
-
-        src_code = self.syncs[node.name]
-
-        from akc.sync.compiler import parse as sync_parse
-        sync_ast = sync_parse(src_code, node.macros)
-
-        node.ast = sync_ast
-
-
-def parse(code, syncs=None, output_handler=True):
+def parse(code):
 
     lexer = net_lexer.build()
     parser = net_parser.build()
@@ -36,27 +18,15 @@ def parse(code, syncs=None, output_handler=True):
     if not net_ast:
         raise ValueError('AST was not build due to some error.')
 
-    # Traverse AST and parse synchronisers.
-    if syncs:
-        SyncParser(syncs).traverse(net_ast)
-
-    # Manually add and connect handler vertex before net output.
-    #if output_handler:
-    #    wiring = net_ast.wiring
-    #    outputs = [p.value for p in net_ast.outputs.ports]
-    #    #
-    #    v = ast.Vertex(outputs, outputs, '__output__', None)
-    #    net_ast.wiring = ast.BinaryOp('..', wiring, v)
-
     return net_ast
 
 
-def compile(code, cores, syncs=None):
+def compile(code, boxes, syncs):
 
     # Generate AST from net source code.
-    net_ast = parse(code, syncs)
+    net_ast = parse(code)
 
     # Generate runtime component network from AST.
-    net, defs = NetBuilder(cores).compile(net_ast)
+    net, used_boxes, used_syncs = NetBuilder(boxes, syncs).compile(net_ast)
 
-    return net, defs
+    return net, used_boxes, used_syncs

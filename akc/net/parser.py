@@ -98,11 +98,12 @@ def p_synchtab(p):
     '''
     p[0] = ast.SynchTab(p[3], p[5])
 
+
 def p_synchroniser(p):
     '''
-    synchroniser : SYNCH ID macros_opt
+    synchroniser : SYNC ID macros_opt
     '''
-    p[0] = ast.Synchroniser(p[2], p[3], None)
+    p[0] = ast.Synchroniser(p[2], p[3])
 
 
 def p_macros_opt(p):
