@@ -1,7 +1,7 @@
 import os
 import stat
 from optparse import OptionParser
-from .compiler import compile
+from .compiler import compile, preamble
 
 usage = "usage: %prog [options] file"
 opts = OptionParser(usage=usage)
@@ -29,6 +29,7 @@ if __name__ == '__main__':
         output = compile(f.read())
 
     with open(options.output, 'w') as f:
+        f.write(preamble())
         f.write(output)
 
         mode = os.fstat(f.fileno()).st_mode

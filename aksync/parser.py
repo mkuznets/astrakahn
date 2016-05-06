@@ -15,6 +15,14 @@ configs = {}
 config_nodes = {}
 
 
+def p_file(p):
+    """
+    file : sync
+         | file sync
+    """
+    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[2]]
+
+
 def p_sync(p):
     """
     sync : SYNCH VID LPAREN input_list BOR output_list RPAREN \
@@ -540,7 +548,7 @@ from . import lexer
 def build():
     tokens = lexer.tokens
     tab_path = 'synctab'
-    return yacc.yacc(start='sync', debug=0, tabmodule=tab_path)
+    return yacc.yacc(start='file', debug=0, tabmodule=tab_path)
 
 
 def linenumber_of_member(m):

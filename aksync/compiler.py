@@ -22,9 +22,28 @@ def compile(code):
     lexer = sync_lexer.build()
     parser = sync_parser.build()
 
-    ast = parser.parse(code, lexer=lexer)
+    asts = parser.parse(code, lexer=lexer)
 
-    # -------------------------------------------------------------------------
+    output = ''
+
+    for ast in asts:
+        output += compile_sync(ast)
+
+    return output
+
+
+def preamble():
+    output = ''
+    output += iprint(0, 'from aksync.runtime import *')
+    output += iprint(0, 'from random import sample')
+    output += iprint(0, 'from collections import defaultdict, ChainMap')
+    output += iprint(0, '')
+
+    return output
+
+
+def compile_sync(ast):
+
     # Build intermediate representation.
 
     tree, vars, actions = SyncBuilder().traverse(ast)
@@ -39,11 +58,6 @@ def compile(code):
 
     level = 0
     output = ''
-
-    output += iprint(level, 'from aksync.runtime import *')
-    output += iprint(level, 'from random import sample')
-    output += iprint(level, 'from collections import defaultdict, ChainMap')
-    output += iprint(level, '')
 
     output += iprint(level, 'def %s(msgs, orig_state):' % sync_name)
     level += 1
@@ -195,5 +209,7 @@ def compile(code):
     level += 1
     output += iprint(level, 'return State(name="start", %s)' % (", ".join(vars)))
     level -= 1
+
+    output += iprint(0, '')
 
     return output
