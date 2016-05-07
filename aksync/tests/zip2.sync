@@ -1,4 +1,4 @@
-synch zip2 (a:0, b:0 | c:0)
+sync zip2 (a, b | c)
 {
   store ma, mb;
 

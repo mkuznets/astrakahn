@@ -1,6 +1,6 @@
 # Minimal test
 
-synch minimal (a | b)
+sync minimal (a | b)
 {
   bar { on: a {} }
 }

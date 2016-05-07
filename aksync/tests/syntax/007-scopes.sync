@@ -1,6 +1,6 @@
 # Scope, transitions.
 
-synch scopes_trans (a, b, c | d)
+sync scopes_trans (a, b, c | d)
 {
   foo {
     on:

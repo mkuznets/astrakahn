@@ -1,9 +1,9 @@
 from aksync.runtime import *
-from aksync.compiler import compile
+from aksync.compiler import compile, preamble
 from collections import deque
 
 sync_src = """
-synch cpu (instr, load, mem, c | stdout, load, mem, c)
+sync cpu (instr, load, mem, c | stdout, load, mem, c)
 {
   store mem;
   state int(2) found;
@@ -105,6 +105,7 @@ synch cpu (instr, load, mem, c | stdout, load, mem, c)
 }
 """
 
+exec(preamble())
 sync_py = compile(sync_src)
 exec(sync_py)
 

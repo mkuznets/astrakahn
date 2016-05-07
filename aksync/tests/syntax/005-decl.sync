@@ -1,6 +1,6 @@
 # Store and state variables
 
-synch vars (a | b)
+sync vars (a | b)
 {
   store foo, bar;
   state int(32) i, j, k;

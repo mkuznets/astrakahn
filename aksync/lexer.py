@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-keywords = ['SYNCH', 'STORE', 'STATE', 'INT', 'ON', 'ELSEON', 'ELSE',
+keywords = ['SYNC', 'STORE', 'STATE', 'INT', 'ON', 'ELSEON', 'ELSE',
             'SET', 'SEND', 'GOTO', 'THIS']
 
 tokens = keywords + [

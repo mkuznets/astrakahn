@@ -1,4 +1,4 @@
-synch join2 (lik, aij | aij)
+sync join2 (lik, aij | aij)
 {
   store acc1;
   store acc2;

@@ -1,6 +1,6 @@
 # Goto statement.
 
-synch goto_stmt (a | d)
+sync goto_stmt (a | d)
 {
   foo {
     on:

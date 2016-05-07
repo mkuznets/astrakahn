@@ -1,6 +1,6 @@
 # Send statement.
 
-synch send_stmt (a | d)
+sync send_stmt (a | d)
 {
   foo {
     on:

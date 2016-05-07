@@ -1,6 +1,6 @@
 # Actions.
 
-synch actions (a | d)
+sync actions (a | d)
 {
   foo {
     on:

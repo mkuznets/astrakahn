@@ -1,6 +1,6 @@
 # Various types of predicates. Integer exressions.
 
-synch predicates (a | d)
+sync predicates (a | d)
 {
   foo {
     on:

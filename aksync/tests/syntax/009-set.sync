@@ -1,6 +1,6 @@
 # Set statement.
 
-synch set_stmt (a | d)
+sync set_stmt (a | d)
 {
   foo {
     on:

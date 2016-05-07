@@ -1,6 +1,6 @@
 # Lists of ports
 
-synch port_lists (a, b, c, d | e, f, g)
+sync port_lists (a, b, c, d | e, f, g)
 {
   bar { on: a {} }
 }

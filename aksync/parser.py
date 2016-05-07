@@ -25,7 +25,7 @@ def p_file(p):
 
 def p_sync(p):
     """
-    sync : SYNCH VID LPAREN input_list BOR output_list RPAREN \
+    sync : SYNC VID LPAREN input_list BOR output_list RPAREN \
            LBRACE decl_list_opt state_list RBRACE
     """
     p[0] = ast.Sync(p[2], ast.PortList(p[4]), ast.PortList(p[6]), p[9],
