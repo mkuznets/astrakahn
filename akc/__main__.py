@@ -31,7 +31,7 @@ if __name__ == '__main__':
     if len(args) != 1:
         opts.error('Input file is required')
 
-    src_filename = args[0]
+    src_filename = str(args[0])
 
     if not is_file_readable(src_filename):
         raise ValueError('Input file does not exist or cannot be read')
@@ -123,7 +123,7 @@ if __name__ == '__main__':
             graph.add_node(exit_node,
                            stmts=[('__output__', (ch,), ())],
                            exit=True)
-            graph.add_edge(bb, exit_node, {'chn': set((ch,))})
+            graph.add_edge(bb, exit_node, {'chn': {ch}})
 
     # Control flow graph.
     output += "nodes = [\n"

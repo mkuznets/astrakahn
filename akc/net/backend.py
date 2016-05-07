@@ -39,7 +39,7 @@ class CFG(nx.DiGraph):
     def add_wire(self, lnode, rnode, port):
         self.add_edge(lnode, rnode)
         edge = self.edge[lnode][rnode]
-        edge['chn'] = edge.get('chn', set()) | set((port,))
+        edge['chn'] = edge.get('chn', set()) | {port}
 
     def add_merger(self, inputs, outputs):
         name = '%s%d' % ('merger', self.merge_nonce)
@@ -117,11 +117,11 @@ class CFG(nx.DiGraph):
                                       new_names if side == 'in' else [port])
                 mergers.add(mrg)
 
-                for node, port in dports:
+                for n, p in dports:
                     if side == 'in':
-                        self.add_wire(mrg, node, port)
+                        self.add_wire(mrg, n, p)
                     else:
-                        self.add_wire(node, mrg, port)
+                        self.add_wire(n, mrg, p)
 
         return mergers
 
@@ -236,9 +236,9 @@ class NetBuilder(ast.NodeVisitor):
         for name, func in boxes.items():
             self.decls[name] = Box(name, func.n_in, func.n_out, func)
 
-        for name, ast in syncs.items():
-            inputs = [p.name.value for p in ast.inputs.ports]
-            outputs = [p.name.value for p in ast.outputs.ports]
+        for name, sync_ast in syncs.items():
+            inputs = [p.name.value for p in sync_ast.inputs.ports]
+            outputs = [p.name.value for p in sync_ast.outputs.ports]
             self.decls[name] = Sync(name, inputs, outputs, None)
 
         self.scope_stack = []
@@ -261,7 +261,9 @@ class NetBuilder(ast.NodeVisitor):
     # -------------------------------------------------------------------------
 
     def visit_SynchTab(self, node, _):
-        'final'
+        """
+        final
+        """
         sync = self.decls[node.name]
         sync.configs = node.sync.configs
 
@@ -269,15 +271,21 @@ class NetBuilder(ast.NodeVisitor):
                        node.labels)
 
     def visit_Synchroniser(self, node, _):
-        'final'
+        """
+        final
+        """
         self.decls[node.name].configs = node.configs
         return self.decls[node.name]
 
     def visit_Net(self, node, _):
-        'final'
+        """
+        final
+        """
         inputs = self.traverse(node.inputs)
         outputs = self.traverse(node.outputs)
-        return Net(node.name, inputs, outputs, node)
+
+        # TODO: support nested nets (wiring argument!)
+        return Net(node.name, inputs, outputs, node.decls, node.wiring)
 
     def visit_DeclList(self, node, children):
         return {d.name: d for d in children['decls']}
@@ -317,7 +325,7 @@ class NetBuilder(ast.NodeVisitor):
         else:
             raise ValueError('Node %s is undefined.' % node.name)
 
-        return set((name_id,))
+        return {name_id}
 
     def visit_BinaryOp(self, node, children):
 
@@ -366,12 +374,12 @@ class NetBuilder(ast.NodeVisitor):
 
     # -------------------------------------------------------------------------
 
-    def compile(self, ast):
-        inputs = self.traverse(ast.inputs)
-        outputs = self.traverse(ast.outputs)
+    def compile(self, net_ast):
+        inputs = self.traverse(net_ast.inputs)
+        outputs = self.traverse(net_ast.outputs)
 
         return (self.compile_net(
-            Net(ast.name, inputs, outputs, ast.decls, ast.wiring)
+            Net(net_ast.name, inputs, outputs, net_ast.decls, net_ast.wiring)
         ), self.used_boxes, self.used_syncs)
 
     def compile_net(self, net):

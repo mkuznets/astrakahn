@@ -230,9 +230,10 @@ class NodeVisitor(object):
 
         children = {}
 
-        if visitor.__doc__ != 'final':
-            # Skip the children
+        doc = visitor.__doc__
+        skip_children = doc and doc.strip() == 'final'
 
+        if not skip_children:
             for c_name, c in node.children():
                 if type(c) == list:
                     outcome = [self.traverse(i) for i in c]
@@ -251,4 +252,3 @@ if __name__ == "__main__":
     import sys
     ast_gen = ASTCodeGenerator('ast/net_ast.cfg')
     ast_gen.generate(open('ast.py', 'w'))
-
