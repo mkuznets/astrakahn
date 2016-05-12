@@ -1,4 +1,3 @@
-from aksync.runtime import *
 from aksync.compiler import compile, preamble
 from collections import deque
 
@@ -39,32 +38,32 @@ sync cpu (instr, load, mem, c | stdout, load, mem, c)
   idecode {
     on:
       # Load
-      c.(act) & [opcode == 0] {
+      c & [opcode == 0] {
         set found = [0];
         send @[0] => mem;
         goto search;
       }
 
       # Store
-      c.(act) & [opcode == 1] {
+      c & [opcode == 1] {
         send (addr: operand || value: [acc]) => mem;
         goto start;
       }
 
       # Addition
-      c.(act) & [opcode == 2] {
+      c & [opcode == 2] {
         set acc = [acc + operand];
         goto start;
       }
 
       # Multiplication
-      c.(act) & [opcode == 3] {
+      c & [opcode == 3] {
         set acc = [acc * operand];
         goto start;
       }
 
       # Print
-      c.(act) & [opcode == 4] {
+      c & [opcode == 4] {
         send 'acc => stdout;
         goto start;
       }

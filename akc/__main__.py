@@ -57,7 +57,7 @@ if __name__ == '__main__':
                                   module_name + '.sync')
 
     with open(syncs_filename, 'r') as src_file:
-        syncs = {ast.name.value: ast
+        syncs = {ast.name: ast
                  for ast in aksync.compiler.compile_to_ast(src_file.read())}
 
     # ----

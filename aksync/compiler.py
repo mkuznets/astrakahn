@@ -53,7 +53,7 @@ def compile_sync(ast):
 
     # Build intermediate representation.
 
-    tree, vars, actions = SyncBuilder().traverse(ast)
+    tree, vars, actions = SyncBuilder(ast).compile()
 
     # -------------------------------------------------------------------------
     # Generate Python code for syncroniser.
@@ -198,9 +198,8 @@ def compile_sync(ast):
                     output += iprint(level, 'output[%d].append(%s)' % (port, msg))
 
                 if act_label == 'Goto':
-                    states = act[0]
-                    name = states[0]
-                    output += iprint(level, 'state.name = "%s"' % name)
+                    state = act[0]
+                    output += iprint(level, 'state.name = "%s"' % state)
 
         output += iprint(level, '')
         level -= 1

@@ -237,9 +237,8 @@ class NetBuilder(ast.NodeVisitor):
             self.decls[name] = Box(name, func.n_in, func.n_out, func)
 
         for name, sync_ast in syncs.items():
-            inputs = [p.name.value for p in sync_ast.inputs.ports]
-            outputs = [p.name.value for p in sync_ast.outputs.ports]
-            self.decls[name] = Sync(name, inputs, outputs, None)
+            self.decls[name] = Sync(name, sync_ast.inputs, sync_ast.outputs,
+                                    None)
 
         self.scope_stack = []
         self.net_stack = []

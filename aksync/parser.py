@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-
-import os
 from . import ast
 
 precedence = (
@@ -10,9 +7,6 @@ precedence = (
     ('left', 'MULT', 'DIVIDE', 'MOD', 'SHL', 'SHR'),
     ('right', 'UMINUS'),
 )
-
-configs = {}
-config_nodes = {}
 
 
 def p_file(p):
@@ -25,111 +19,18 @@ def p_file(p):
 
 def p_sync(p):
     """
-    sync : SYNC VID LPAREN input_list BOR output_list RPAREN \
+    sync : SYNC ID LPAREN id_list BOR id_list RPAREN \
            LBRACE decl_list_opt state_list RBRACE
     """
-    p[0] = ast.Sync(p[2], ast.PortList(p[4]), ast.PortList(p[6]), p[9],
-                    ast.StateList(p[10]), None)
-
-
-def p_VID(p):
-    """
-    VID : ID
-    """
-    if p[1] in configs:
-        term = ast.ID(configs[p[1]])
-        config_nodes[p[1]].append(term)
-    else:
-        term = ast.ID(p[1])
-    p[0] = term
-
-
-def p_VNUMBER(p):
-    """
-    VNUMBER : ID
-            | NUMBER
-    """
-    if p[1] in configs:
-        term = ast.NUMBER(configs[p[1]])
-        config_nodes[p[1]].append(term)
-    else:
-        if type(p[1]) is not int:
-            raise ValueError("ID instead of NUMBER, or undeclared macros.")
-        else:
-            term = ast.NUMBER(p[1])
-    p[0] = term
-
-
-def p_VTERM(p):
-    """
-    VTERM : ID
-    """
-    if p[1] in configs:
-        term = ast.TERM(configs[p[1]])
-        config_nodes[p[1]].append(term)
-    else:
-        term = ast.ID(p[1])
-    p[0] = term
+    p[0] = ast.Sync(p[2], p[4], p[6], p[9], ast.StateList(p[10]))
 
 
 def p_id_list(p):
     """
-    id_list : VID
-            | id_list COMMA VID
+    id_list : ID
+            | id_list COMMA ID
     """
     p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_input_list(p):
-    """
-    input_list : input
-               | input_list COMMA input
-    """
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_input(p):
-    """
-    input : VID
-          | VID COLON VID
-          | VID COLON VNUMBER
-    """
-    if len(p) == 4:
-        depth = p[3]
-    else:
-        depth = ast.DepthNone()
-
-    p[0] = ast.Port(p[1], depth)
-
-
-def p_output_list(p):
-    """
-    output_list : output
-                | output_list COMMA output
-    """
-    p[0] = [p[1]] if len(p) == 2 else p[1] + [p[3]]
-
-
-def p_output(p):
-    """
-    output : VID
-           | VID COLON depth_exp
-    """
-    p[0] = ast.Port(p[1], (ast.DepthNone() if len(p) == 2 else p[3]))
-
-
-def p_depth_exp(p):
-    """
-    depth_exp : VNUMBER
-              | VID
-              | VID PLUS VNUMBER
-              | VID MINUS VNUMBER
-    """
-    if len(p) == 2:
-        p[0] = p[1]
-
-    else:
-        p[0] = ast.DepthExp(p[1], p[2], p[3])
 
 
 def p_decl_list_opt(p):
@@ -145,8 +46,7 @@ def p_decl_list(p):
     decl_list : decl
               | decl_list decl
     """
-    decl_list = p[1] if len(p) == 2 else p[1] + p[2]
-    p[0] = decl_list
+    p[0] = p[1] if len(p) == 2 else p[1] + p[2]
 
 
 def p_decl(p):
@@ -162,7 +62,7 @@ def p_decl(p):
 
 def p_type(p):
     """
-    type : INT LPAREN VNUMBER RPAREN
+    type : INT LPAREN NUMBER RPAREN
     """
     p[0] = ast.IntType(p[3])
 
@@ -178,9 +78,9 @@ def p_statevar_list(p):
 def p_statevar(p):
     """
     statevar : ID
-             | ID ASSIGN VNUMBER
+             | ID ASSIGN NUMBER
     """
-    p[0] = (ast.ID(p[1]), ast.NUMBER(0) if len(p) == 2 else p[3])
+    p[0] = (p[1], 0 if len(p) == 2 else p[3])
 
 
 def p_state_list(p):
@@ -193,7 +93,7 @@ def p_state_list(p):
 
 def p_state(p):
     """
-    state : VID LBRACE on_scope elseon_scope_list_opt RBRACE
+    state : ID LBRACE on_scope elseon_scope_list_opt RBRACE
     """
     p[0] = ast.State(p[1], [p[3]] + p[4])
 
@@ -238,7 +138,7 @@ def p_trans_list(p):
 
 def p_trans_stmt(p):
     """
-    trans_stmt : VID condition_opt guard_opt action_list
+    trans_stmt : ID condition_opt guard_opt action_list
     """
     p[0] = ast.Trans(p[1], p[2], p[3], p[4])
 
@@ -264,7 +164,7 @@ def p_cond_else(p):
 
 def p_cond_msg(p):
     """
-    cond_msg : AT VID pattern_opt
+    cond_msg : AT ID pattern_opt
              | pattern_opt
     """
 
@@ -280,7 +180,7 @@ def p_pattern_opt(p):
     pattern_opt : LPAREN id_list_opt tail_opt RPAREN
                 | empty
     """
-    pattern, tail = (p[2], p[3]) if len(p) > 2 else ([], ast.TERM(None))
+    pattern, tail = (p[2], p[3]) if len(p) > 2 else ([], None)
     p[0] = {'pattern': pattern, 'tail': tail}
 
 
@@ -294,10 +194,10 @@ def p_id_list_opt(p):
 
 def p_tail_opt(p):
     """
-    tail_opt : LOR VID
+    tail_opt : LOR ID
              | empty
     """
-    p[0] = p[2] if len(p) == 3 else ast.TERM(None)
+    p[0] = p[2] if len(p) == 3 else None
 
 
 def p_guard_opt(p):
@@ -337,8 +237,8 @@ def p_assign_list(p):
 
 def p_assign(p):
     """
-    assign : VID ASSIGN int_exp
-           | VID ASSIGN data_exp
+    assign : ID ASSIGN int_exp
+           | ID ASSIGN data_exp
     """
     p[0] = ast.Assign(p[1], p[3])
 
@@ -364,9 +264,9 @@ def p_term_list(p):
 def p_term(p):
     """
     term : THIS
-         | VID
-         | APOSTR VID
-         | VID COLON pair_value
+         | ID
+         | APOSTR ID
+         | ID COLON pair_value
     """
     if len(p) == 2:
         if p[1] == 'this':
@@ -379,16 +279,14 @@ def p_term(p):
 
     elif len(p) == 4:
         p[0] = ast.ItemPair(p[1], p[3])
-    else:
-        raise ValueError("Something Wrong!")
 
 
 def p_pair_value(p):
     """
-    pair_value : VID
+    pair_value : ID
                | int_exp
     """
-    if type(p[1]) is ast.ID:
+    if type(p[1]) is str:
         p[0] = ast.ItemVar(p[1])
 
     else:
@@ -413,7 +311,7 @@ def p_dispatch_list(p):
 
 def p_dispatch(p):
     """
-    dispatch : msg_exp TO VID
+    dispatch : msg_exp TO ID
     """
     p[0] = ast.Send(p[1], p[3])
 
@@ -436,14 +334,10 @@ def p_msg_exp(p):
 
 def p_goto_stmt_opt(p):
     """
-    goto_stmt_opt : GOTO id_list SCOLON
+    goto_stmt_opt : GOTO ID SCOLON
                   | empty
     """
-    if len(p) == 4:
-        states = [n for n in p[2]]
-        p[0] = [ast.Goto(states)]
-    else:
-        p[0] = []
+    p[0] = [ast.Goto(p[2])] if len(p) == 4 else []
 
 
 def p_empty(p):
@@ -506,7 +400,7 @@ def p_intexp_raw(p):
         t = ('t%d:d' if type(p[1]) is int else 't%d:s') % terms_cnt
         terms_cnt += 1
         # Ugly hack. Need to make a separate rule for wrapping a number.
-        terms[t[:-2]] = ast.NUMBER(p[1]) if type(p[1]) is int else p[1]
+        terms[t[:-2]] = p[1]
         p[0] = '{%s}' % t
 
     else:
@@ -524,10 +418,10 @@ def p_intexp_raw(p):
 
 def p_exp_term(p):
     """
-    exp_term : VTERM
+    exp_term : ID
     """
     global intexp_args
-    intexp_args.append(p[1].value)
+    intexp_args.append(p[1])
     p[0] = p[1]
 
 ###############################
@@ -541,11 +435,10 @@ def p_error(p):
     quit()
 
 
-import ply.yacc as yacc
-from . import lexer
-
-
 def build():
+    import ply.yacc as yacc
+    from . import lexer
+
     tokens = lexer.tokens
     tab_path = 'synctab'
     return yacc.yacc(start='file', debug=0, tabmodule=tab_path)
@@ -568,8 +461,7 @@ def print_grammar():
     members = sorted(members, key=linenumber_of_member)
 
     for name, obj in members:
-        if inspect.isfunction(obj) and name[:2] == 'p_'\
-                and obj.__doc__ is not None:
+        if inspect.isfunction(obj) and name.startswith('p_') and obj.__doc__:
             rule = str(obj.__doc__).strip()
             rules.append(rule)
 

@@ -7,14 +7,18 @@ from . import ast
 
 class SyncBuilder(ast.NodeVisitor):
 
-    def __init__(self):
+    def __init__(self, ast):
 
         self._actions = {}
         self._actions_key = 0
+        self._ast = ast
 
         # Mapping from port names to port ids.
-        self.input_index = None
-        self.output_index = None
+        self.input_index = {n: i for i, n in enumerate(ast.inputs)}
+        self.output_index = {n: i for i, n in enumerate(ast.outputs)}
+
+    def compile(self):
+        return self.traverse(self._ast)
 
     def add_actions(self, actions):
         t = self._actions_key
@@ -24,29 +28,7 @@ class SyncBuilder(ast.NodeVisitor):
         return t
 
     def visit_Sync(self, node, ch):  # -> [tree, vars, actions]
-        return ('sync:%s' % node.name.value, *ch['states']), ch['decls'], self._actions
-
-    # --------------------------------------------------
-
-    def visit_PortList(self, node, ch):
-
-        index = {n: i for i, n in enumerate(ch['ports'])}
-
-        if self.input_index is None:
-            self.input_index = index
-        else:
-            self.output_index = index
-
-        return ch['ports']
-
-    def visit_Port(self, node, ch):
-        return ch['name']
-
-    def visit_DepthExp(self, node, ch):
-        raise NotImplementedError('Channel depth')
-
-    def visit_DepthNone(self, node, _):
-        pass
+        return ('sync:%s' % node.name, *ch['states']), ch['decls'], self._actions
 
     # --------------------------------------------------
 
@@ -54,13 +36,13 @@ class SyncBuilder(ast.NodeVisitor):
         return ch['decls']
 
     def visit_StoreVar(self, node, ch):
-        return '%s={}' % ch['name']
+        return '%s={}' % node.name
 
     def visit_StateVar(self, node, ch):
-        return '%s=%s' % (ch['name'], ch['value'])
+        return '%s=%s' % (node.name, node.value)
 
     def visit_IntType(self, node, ch):
-        return ('int', ch['size'])
+        return ('int', node.size)
 
     def visit_StateList(self, node, ch):
         return ch['states']
@@ -79,7 +61,7 @@ class SyncBuilder(ast.NodeVisitor):
                 ('scope:%d' % i, *((p, *t) for p, t in byport.items()))
             )
 
-        state = ('state:%s' % ch['name'], *scopes)
+        state = ('state:%s' % node.name, *scopes)
 
         return state
 
@@ -87,7 +69,7 @@ class SyncBuilder(ast.NodeVisitor):
         return ch['trans_stmt']
 
     def visit_Trans(self, node, ch):
-        pid = self.input_index[ch['port']]
+        pid = self.input_index[node.port]
 
         act_id = self.add_actions(ch['actions'])
 
@@ -99,19 +81,14 @@ class SyncBuilder(ast.NodeVisitor):
 
     def visit_CondSegmark(self, node, ch):
         return 'ConditionSegmark("%s", [%s], "%s")' % \
-            (ch['depth'],
-             ', '.join(ch['pattern']),
-             ch['tail'])
+            (node.depth,
+             ', '.join(node.pattern),
+             node.tail)
 
-    def visit_CondChoice(self, node, ch):
+    def visit_CondDataMsg(self, node, _):
         return 'ConditionData([%s], "%s")' % \
-            (', '.join('"%s"' % l for l in ch['pattern']),
-             ch['tail'])
-
-    def visit_CondDataMsg(self, node, ch):
-        return 'ConditionData([%s], "%s")' % \
-            (', '.join('"%s"' % l for l in ch['pattern']),
-             ch['tail'])
+            (', '.join('"%s"' % l for l in node.pattern),
+             node.tail)
 
     def visit_CondEmpty(self, node, _):
         return 'ConditionPass()'
@@ -122,58 +99,49 @@ class SyncBuilder(ast.NodeVisitor):
     # --------------------------------------------------
 
     def visit_Assign(self, node, ch):
-        return ('Assign', ch['lhs'], ch['rhs'])
+        return ('Assign', node.lhs, ch['rhs'])
 
     def visit_Send(self, node, ch):
-        pid = self.output_index[ch['port']]
+        pid = self.output_index[node.port]
         return ('Send', ch['msg'], pid)
 
     def visit_Goto(self, node, ch):
-        return ('Goto', ch['states'])
+        return ('Goto', node.state)
 
     # --------------------------------------------------
 
     def visit_DataExp(self, node, ch):
         terms = ch['terms']
+        terms.reverse()
 
-        if not terms:
-            return []
-        else:
-            terms.reverse()
-            return ', '.join(terms)
+        return ', '.join(terms) if terms else ''
 
     def visit_ItemThis(self, node, _):
         return 'msg'
 
     def visit_ItemVar(self, node, ch):
-        return 'state["%s"]' % (ch['name'])
+        return 'state["%s"]' % (node.name)
 
     def visit_ItemExpand(self, node, ch):
-        return '{"%s": state["%s"]}' % (ch['name'], ch['name'])
+        return '{"%s": state["%s"]}' % (node.name, node.name)
 
     def visit_ItemPair(self, node, ch):
-        return '{"%s": %s}' % (ch['label'], ch['value'])
+        return '{"%s": %s}' % (node.label, ch['value'])
 
     # --------------------------------------------------
 
     def visit_MsgSegmark(self, node, ch):
-        if not ch['data_exp']:
-            return '{"__n__": %s}' % ch['depth']
-        else:
-            return 'dict(ChainMap({"__n__": %s}, %s))' % (ch['depth'],
-                                                          ch['data_exp'])
+        return 'dict(ChainMap({"__n__": %s}, %s))' % (ch['depth'],
+                                                      ch['data_exp'])
 
     def visit_MsgRecord(self, node, ch):
-        if not ch['data_exp']:
-            return '{}'
-        else:
-            return 'dict(ChainMap(%s))' % ch['data_exp']
+        return 'dict(ChainMap(%s))' % ch['data_exp']
 
     # --------------------------------------------------
 
     def visit_IntExp(self, node, _):
 
-        values = {key: term.value for key, term in node.terms.items()}
+        values = {key: term for key, term in node.terms.items()}
         # print(values)
         # args = [term for term in values.values() if type(term) is str]
         #
@@ -182,15 +150,6 @@ class SyncBuilder(ast.NodeVisitor):
 
         return node.exp.format(**{k: 'state["%s"]' % v if type(v) is str else v
                                   for k,v in values.items()})
-
-    def visit_ID(self, node, _):
-        return node.value
-
-    def visit_TERM(self, node, _):
-        return node.value
-
-    def visit_NUMBER(self, node, _):
-        return node.value
 
     # --------------------------------------------------
 
