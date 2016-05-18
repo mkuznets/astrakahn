@@ -1,4 +1,5 @@
 from collections import defaultdict
+from itertools import chain
 
 from . import lexer as sync_lexer
 from . import parser as sync_parser
@@ -18,7 +19,6 @@ def iprint(level, text):
 
 
 def compile(code):
-
     asts = compile_to_ast(code)
 
     output = ''
@@ -30,7 +30,6 @@ def compile(code):
 
 
 def compile_to_ast(code):
-
     lexer = sync_lexer.build()
     parser = sync_parser.build()
 
@@ -42,7 +41,7 @@ def compile_to_ast(code):
 def preamble():
     output = ''
     output += iprint(0, 'from aksync.runtime import *')
-    output += iprint(0, 'from random import sample')
+    output += iprint(0, 'from random import choice')
     output += iprint(0, 'from collections import defaultdict, ChainMap')
     output += iprint(0, '')
 
@@ -50,7 +49,6 @@ def preamble():
 
 
 def compile_sync(ast):
-
     # Build intermediate representation.
 
     tree, vars, actions = SyncBuilder(ast).compile()
@@ -66,13 +64,19 @@ def compile_sync(ast):
     level = 0
     output = ''
 
-    output += iprint(level, 'def %s(msgs, orig_state):' % sync_name)
+    output += iprint(level, 'class %s:' % sync_name)
     level += 1
 
-    output += iprint(level, 'if not msgs: return({}, orig_state.copy(), ())')
+    extracts = {}
+    ghosts = {}
+
+    output += iprint(level, '@staticmethod')
+    output += iprint(level, 'def test(state, msgs, return_locals=False):')
+    level += 1
+
+    output += iprint(level, 'if not msgs: return None')
     output += iprint(level, '')
 
-    output += iprint(level, 'state = orig_state.copy()')
     output += iprint(level, 'valid_acts = []')
     output += iprint(level, '')
 
@@ -84,7 +88,7 @@ def compile_sync(ast):
         state_name = state_label.split(':')[1]
 
         output += iprint(level, '%sif state.name == "%s":'
-               % ('el' if st_i > 0 else '', state_name))
+                         % ('el' if st_i > 0 else '', state_name))
 
         level += 1
 
@@ -92,6 +96,7 @@ def compile_sync(ast):
         for sc_i, scope in enumerate(scopes):
 
             if sc_i > 0:
+                output += iprint(level, '')
                 output += iprint(level, 'if not valid_acts:')
                 level += 1
 
@@ -110,43 +115,74 @@ def compile_sync(ast):
 
                 tests = defaultdict(list)
 
-                for pattern_label, trans in transitions:
-                    pattern = pattern_label.split(':')[1]
-                    tests[pattern].append(trans)
+                for _, test, trans in transitions:
+                    if test:
+                        pattern, tail, depth = test
+                        s = (tuple(sorted(pattern)), tail, depth)
+                    else:
+                        s = None
+
+                    tests[s].append(trans)
 
                 # -- test level --
-                for pattern, predicates in tests.items():
-                    if pattern == '__else__':
+                for test, predicates in tests.items():
+
+                    if test is None:
+                        # else-clause
                         continue
 
-                    output += iprint(level,
-                                     'match, state.locals = %s.test(msgs[%d])'
-                                     % (pattern, port_id)
-                    )
-                    output += iprint(level, 'if match:')
+                    pattern, tail, depth = test
+
+                    labels = pattern + (('__n__',) if depth is not None else ())
+
+                    pattern_src = '{%s}' % ', '.join(map(repr, labels))\
+                        if labels else 'set()'
+                    test_src = '%s <= msgs[%d].keys()' % (pattern_src, port_id)
+
+                    output += iprint(level, 'if %s:' % test_src)
                     level += 1
 
-                    for pr_i, (predicate_label, act_id) in enumerate(predicates):
+                    for pr_i, (predicate_label, act_id) in enumerate(
+                            predicates):
                         predicate = ':'.join(predicate_label.split(':')[1:])
-                        output += iprint(
-                            level, '%sif (%s): '
-                            'valid_acts.append((%d, %d, state.locals))'
-                            % ('el' if pr_i == 1 else '', predicate, act_id, port_id)
+
+                        extract_src = '%s._extract(msgs[%d], %d)' % (sync_name,
+                                                                     port_id,
+                                                                     act_id)
+
+                        # Save test values for lookup table.
+                        extracts[act_id] = '[%s], %s, %s' % (
+                            ', '.join(map(repr, pattern)),
+                            repr(tail),
+                            repr(depth)
                         )
+
+                        eval_src = 'eval("%s", state.scope(), local_vars)' % predicate
+
+                        output += iprint(level, 'local_vars = %s' % extract_src)
+                        output += iprint(level, 'if %s:' % eval_src)
+                        level += 1
+                        output += iprint(level, 'valid_acts.append((%d, %d, local_vars))'
+                                                % (act_id, port_id))
+                        level -= 1
 
                     level -= 1
                 # -- test level --
 
                 # -- else level --
-                if '__else__' in tests:
+                if None in tests:
                     output += iprint(level, 'else:')
                     level += 1
 
-                    for i, (predicate_label, act_id) in enumerate(tests['__else__']):
+                    for i, (predicate_label, act_id) in enumerate(tests[None]):
                         predicate = ':'.join(predicate_label.split(':')[1:])
-                        output += iprint(level, '%sif (%s): '
-                               'valid_acts.append((%d, %d, {}))'
-                               % ('el' if i == 1 else '', predicate, act_id, port_id))
+
+                        eval_src = 'eval("%s", state.scope())' % predicate
+                        output += iprint(level, 'if %s:' % eval_src)
+                        level += 1
+                        output += iprint(level, 'valid_acts.append((%d, %d, {}))'
+                                         % (act_id, port_id))
+                        level -= 1
 
                     level -= 1
 
@@ -165,22 +201,42 @@ def compile_sync(ast):
         output += iprint(level, '')
     # -- state level --
 
-    output += iprint(level, '# --------------')
+    output += iprint(level, 'if not valid_acts:')
+    level += 1
+    output += iprint(level, 'return None')
+    level -= 1
     output += iprint(level, '')
 
-    output += iprint(level, 'if not valid_acts: return({}, orig_state.copy(), ())')
+    output += iprint(level, 'act_id, port_id, local_vars = choice(valid_acts)')
+    output += iprint(level, '')
+    output += iprint(level, 'if return_locals: return act_id, port_id, local_vars')
+    output += iprint(level, 'else: return act_id, port_id')
+
+    output += iprint(level, '')
     output += iprint(level, '')
 
-    output += iprint(level, 'act_id, port_id, state.locals = '
-                            'sample(valid_acts, 1)[0]')
+    level -= 1
+    # --------------------------------------------------------------------------
 
+    output += iprint(level, '@staticmethod')
+    output += iprint(level, 'def execute(orig_state, msg, act_id, '
+                            'local_vars=None):')
+    level += 1
+
+    output += iprint(level, 'state = orig_state.copy()')
     output += iprint(level, 'output = defaultdict(list)')
-    output += iprint(level, 'msg = msgs[port_id]')
+
+    output += iprint(level, 'if not local_vars: '
+                            'local_vars = %s._extract(msg, act_id)' % sync_name)
+    output += iprint(level, 'system = {"ChainMap": ChainMap, "__this__": msg}')
+    output += iprint(level, 'scope = dict(ChainMap(state.scope(), system))')
+
     output += iprint(level, '')
 
     for i, (act_id, acts) in enumerate(actions.items()):
 
-        output += iprint(level, '%sif act_id == %d:' % ('el' if i > 0 else '', act_id))
+        output += iprint(level,
+                         '%sif act_id == %d:' % ('el' if i > 0 else '', act_id))
         level += 1
 
         if not acts:
@@ -191,31 +247,78 @@ def compile_sync(ast):
 
                 if act_label == 'Assign':
                     lhs, rhs = act
-                    output += iprint(level, 'state["%s"] = %s' % (lhs, rhs))
+                    output += iprint(level, 'local_vars["%s"] = eval(%s, '
+                                            'scope, local_vars)' % (lhs,
+                                                                    repr(rhs)))
 
                 if act_label == 'Send':
                     msg, port = act
-                    output += iprint(level, 'output[%d].append(%s)' % (port, msg))
+                    output += iprint(level, 'output[%d].append(' % port)
+                    output += iprint(level, '   eval(%s, scope, '
+                                            'local_vars)' % repr(msg))
+                    output += iprint(level, ')')
 
                 if act_label == 'Goto':
                     state = act[0]
                     output += iprint(level, 'state.name = "%s"' % state)
 
+        output += iprint(level, 'state.update(local_vars)')
         output += iprint(level, '')
         level -= 1
 
-    output += iprint(level, 'state.locals.clear()')
     output += iprint(level, '')
+
+    output += iprint(level, 'return output, state')
+    level -= 1
+    output += iprint(level, '')
+
+    # --------------------------------------------------------------------------
+
+    output += iprint(level, '@staticmethod')
+    output += iprint(level, 'def init():')
+    level += 1
+    output += iprint(level,
+                     'return State(name="start", %s)' % (", ".join(vars)))
+    level -= 1
+    output += iprint(level, '')
+
+    # --------------------------------------------------------------------------
+
+    output += iprint(level, '@staticmethod')
+    output += iprint(level, 'def _extract(msg, act_id):')
+    level += 1
+
+    output += iprint(level, 'args = {')
+    for act_id, args in extracts.items():
+        output += iprint(level+1, '%d: (%s),' % (act_id, args))
+    output += iprint(level, '}')
+
+    output += iprint(level, 't = args[act_id]')
+    output += iprint(level, 'return extract(msg, *t)')
+
+    level -= 1
+    output += iprint(0, '')
+
+    # --------------------------------------------------------------------------
+
+    output += iprint(level, '@staticmethod')
+    output += iprint(level, 'def run(state, msgs):')
+    level += 1
+
+    output += iprint(level, 'test = %s.test(state, msgs, True)' % sync_name)
+    output += iprint(level, 'if test:')
+    level += 1
+
+    output += iprint(level, 'act_id, port_id, local_vars = test')
+    output += iprint(level, 'output, state = %s.execute(state, '
+                            'msgs[port_id], act_id, local_vars)' % sync_name)
 
     output += iprint(level, 'return(output, state, (port_id,))')
+
     level -= 1
+    output += iprint(level, 'else: return {}, state, None')
     output += iprint(level, '')
 
-    output += iprint(level, 'def %s_init():' % sync_name)
-    level += 1
-    output += iprint(level, 'return State(name="start", %s)' % (", ".join(vars)))
-    level -= 1
-
-    output += iprint(0, '')
+    # --------------------------------------------------------------------------
 
     return output

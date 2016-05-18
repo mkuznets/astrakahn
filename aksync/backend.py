@@ -74,27 +74,22 @@ class SyncBuilder(ast.NodeVisitor):
         act_id = self.add_actions(ch['actions'])
 
         return ('port:%d' % pid,
-                ('pattern:%s' % ch['condition'],
+                ('pattern', ch['condition'],
                  ('predicate:%s' % ch['guard'], act_id)))
 
     # --------------------------------------------------
 
     def visit_CondSegmark(self, node, ch):
-        return 'ConditionSegmark("%s", [%s], "%s")' % \
-            (node.depth,
-             ', '.join(node.pattern),
-             node.tail)
+        return node.pattern, node.tail, node.depth
 
     def visit_CondDataMsg(self, node, _):
-        return 'ConditionData([%s], "%s")' % \
-            (', '.join('"%s"' % l for l in node.pattern),
-             node.tail)
+        return node.pattern, node.tail, None
 
     def visit_CondEmpty(self, node, _):
-        return 'ConditionPass()'
+        return [], None, None
 
     def visit_CondElse(self, node, _):
-        return '__else__'
+        return None
 
     # --------------------------------------------------
 
@@ -117,13 +112,13 @@ class SyncBuilder(ast.NodeVisitor):
         return ', '.join(terms) if terms else ''
 
     def visit_ItemThis(self, node, _):
-        return 'msg'
+        return '__this__'
 
     def visit_ItemVar(self, node, ch):
-        return 'state["%s"]' % (node.name)
+        return node.name
 
     def visit_ItemExpand(self, node, ch):
-        return '{"%s": state["%s"]}' % (node.name, node.name)
+        return '{"%s": %s}' % (node.name, node.name)
 
     def visit_ItemPair(self, node, ch):
         return '{"%s": %s}' % (node.label, ch['value'])
@@ -148,7 +143,7 @@ class SyncBuilder(ast.NodeVisitor):
         # code = 'lambda %s: %s' % (', '.join(set(args)),
         #                           node.exp.format(**values))
 
-        return node.exp.format(**{k: 'state["%s"]' % v if type(v) is str else v
+        return node.exp.format(**{k: '%s' % v if type(v) is str else v
                                   for k,v in values.items()})
 
     # --------------------------------------------------

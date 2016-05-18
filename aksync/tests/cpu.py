@@ -135,7 +135,7 @@ channels = {
     3: deque(),  # c
 }
 
-state = cpu_init()
+state = cpu.init()
 
 # Implement network
 # Input: `instr'
@@ -145,7 +145,7 @@ state = cpu_init()
 while True:
     inputs = {i: ch[-1] for i, ch in channels.items() if ch}
 
-    output, state, consumed = cpu(inputs, state)
+    output, state, consumed = cpu.run(state, inputs)
 
     if not consumed:
         break
