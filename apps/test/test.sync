@@ -1,0 +1,33 @@
+sync zip (a, b | a)
+{
+  store ma, mb;
+
+  start {
+    on:
+      a {
+        set ma = this;
+        goto s1;
+      }
+
+      b {
+        set mb = this;
+        goto s2;
+      }
+  }
+
+  s1 {
+    on:
+      b {
+        send ma || this => a;
+        goto start;
+      }
+  }
+
+  s2 {
+    on:
+      a {
+        send mb || this => a;
+        goto start;
+      }
+  }
+}
